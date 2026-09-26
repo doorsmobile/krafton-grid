@@ -1,0 +1,27 @@
+{# Inline nav icons — keyed by nav item id; red stroke via CSS currentColor #}
+{% set n = name %}
+{% if n == "dashboard" %}
+<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="6" height="6" rx="1.2"/><rect x="11" y="3" width="6" height="6" rx="1.2"/><rect x="3" y="11" width="6" height="6" rx="1.2"/><rect x="11" y="11" width="6" height="6" rx="1.2"/></svg>
+{% elif n == "campus-aerial" %}
+<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 14.5l3-7 3 4 2.5-5.5 4.5 8.5"/><path d="M3 16.5h14"/></svg>
+{% elif n == "facility" %}
+<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11 2.5L5.5 11h4.2L8.8 17.5 14.5 9h-4.1L11 2.5z"/></svg>
+{% elif n == "it-cluster" %}
+<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="10" height="10" rx="1.5"/><path d="M8 2.5v2.5M12 2.5v2.5M8 15v2.5M12 15v2.5M2.5 8H5M2.5 12H5M15 8h2.5M15 12h2.5"/><rect x="8" y="8" width="4" height="4" rx="0.6"/></svg>
+{% elif n == "gpu-platform" %}
+<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5l1.4 4.2H16l-3.5 2.6 1.3 4.2L10 11.2l-3.8 2.3 1.3-4.2L4 6.7h4.6L10 2.5z"/></svg>
+{% elif n == "cloud" %}
+<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 14.5h8.1a3.2 3.2 0 0 0 .4-6.4 4.4 4.4 0 0 0-8.4-1.1A3.1 3.1 0 0 0 6.2 14.5z"/></svg>
+{% elif n == "observability" %}
+<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="2.4"/><path d="M2.8 10c1.6-3.2 4.1-4.8 7.2-4.8S15.6 6.8 17.2 10c-1.6 3.2-4.1 4.8-7.2 4.8S4.4 13.2 2.8 10z"/></svg>
+{% elif n == "operations" %}
+<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M4 10h12M4 14h12"/></svg>
+{% elif n == "developers" %}
+<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5.5L3.5 10 7 14.5M13 5.5L16.5 10 13 14.5"/></svg>
+{% elif n == "platform" %}
+<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.2L16.2 6.5 10 9.8 3.8 6.5 10 3.2z"/><path d="M3.8 10l6.2 3.3L16.2 10"/><path d="M3.8 13.2L10 16.5l6.2-3.3"/></svg>
+{% elif n == "cost" %}
+<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 5.8v8.4M12.4 7.6c-.4-.7-1.2-1.1-2.4-1.1-1.5 0-2.5.8-2.5 1.9s1 1.7 2.6 2.1c1.6.4 2.6.9 2.6 2.1 0 1.2-1.1 2-2.7 2-1.3 0-2.2-.5-2.6-1.3"/></svg>
+{% else %}
+<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="10" cy="10" r="6"/></svg>
+{% endif %}

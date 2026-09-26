@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}{{ node.hostname }} · GPU Host{% endblock %}
+{% block page_title %}{{ node.hostname }} — HGX B300{% endblock %}
+{% block page_sub %}{{ node.rack }} · {{ node.partition }} · Slurm {{ node.slurm_state }} · devices + connected entities{% endblock %}
+{% block content %}
+<p class="hint"><a href="/gpu-fleet">← GPU Monitoring</a></p>
+
+<div class="grid grid-4">
+  <div class="panel">
+    <h3>Host</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Provider</span><span class="stat-value">{{ host.provider if host else 'on-prem' }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Type</span><span class="stat-value">{{ host.instance_type if host else 'HGX B300' }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Team</span><span class="stat-value">{{ host.team if host else '—' }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Slurm</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">State</span><span class="stat-value"><span class="badge {{ 'ok' if node.slurm_state.startswith('ALLOC') else ('warn' if node.slurm_state=='MIXED' else 'idle') }}">{{ node.slurm_state }}</span></span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">GPUs</span><span class="stat-value">{{ node.gpus_alloc }}/{{ node.gpus_total }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Job</span><span class="stat-value mono" style="font-size:0.8rem">{{ node.slurm_job or '—' }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>CubeFlow / host</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">SM util</span><span class="stat-value">{{ host.sm_util_pct if host else node.cubeflow.gpu_util_pct }}%</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">GPU mem</span><span class="stat-value">{{ host.gpu_memory_pct if host else node.cubeflow.gpu_mem_pct }}%</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">CPU / Host mem</span><span class="stat-value">{{ host.cpu_util_pct if host else '—' }}% / {{ host.host_mem_pct if host else '—' }}%</span></div>
+  </div>
+  <div class="panel">
+    <h3>Thermal</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Temp</span><span class="stat-value">{{ host.temp_c if host else node.cubeflow.temp_c }}°C</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Power</span><span class="stat-value mono">{{ node.cubeflow.power_w }} W</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Devices</span><span class="stat-value">{{ devices|length }}</span></div>
+  </div>
+</div>
+
+<div class="grid grid-1" style="margin-top:1rem">
+  <div class="panel">
+    <h2>GPU devices on this host</h2>
+    <p class="hint">Sorted by graphics / SM activity — click for device detail (SM · mem · power · connected processes).</p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Device</th><th>SM</th><th>Sat</th><th>Mem</th><th>Graphics</th>
+            <th>Power</th><th>Temp</th><th>ECC</th><th>XID</th><th>State</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in devices %}
+          <tr class="click-row" onclick="location.href='/gpu-fleet/device/{{ d.id }}'">
+            <td class="mono"><a href="/gpu-fleet/device/{{ d.id }}">{{ d.id }}</a></td>
+            <td>{{ d.sm_util_pct }}%</td>
+            <td>{{ d.gpu_saturation_pct }}%</td>
+            <td>{{ d.gpu_memory_pct }}%</td>
+            <td>{{ d.graphics_activity_pct }}%</td>
+            <td class="mono">{{ d.power_w }} W</td>
+            <td>{{ d.temp_c }}°C</td>
+            <td class="mono {% if d.ecc_errors %}warn-text{% endif %}">{{ d.ecc_errors }}</td>
+            <td class="mono {% if d.xid_errors %}warn-text{% endif %}">{{ d.xid_errors }}</td>
+            <td>
+              {% if d.idle %}<span class="badge warn">idle</span>
+              {% elif d.active %}<span class="badge ok">active</span>
+              {% elif d.allocated %}<span class="badge warn">alloc</span>
+              {% else %}<span class="badge idle">free</span>{% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10" class="muted">No device sample for this host.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-2" style="margin-top:1rem">
+  <div class="panel">
+    <h2>Connected processes</h2>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>PID</th><th>Name</th><th>Device</th><th>SM</th><th>Mem</th></tr></thead>
+        <tbody>
+          {% for p in processes %}
+          <tr>
+            <td class="mono">{{ p.pid }}</td>
+            <td>{{ p.name }}</td>
+            <td class="mono"><a href="/gpu-fleet/device/{{ p.device_id }}">{{ p.device_id }}</a></td>
+            <td>{{ p.sm_util_pct }}%</td>
+            <td class="mono">{{ p.gpu_memory_mb }} MiB</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="muted">No processes.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Related Slurm queue</h2>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Job</th><th>Name</th><th>User</th><th>GPUs</th><th>State</th></tr></thead>
+        <tbody>
+          {% for j in queue[:10] %}
+          <tr>
+            <td class="mono">{{ j.job_id }}</td>
+            <td>{{ j.name }}</td>
+            <td>{{ j.user }}</td>
+            <td>{{ j.gpus }}</td>
+            <td><span class="badge {{ 'ok' if j.state=='R' else 'warn' }}">{{ j.state }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

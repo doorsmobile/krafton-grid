@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Mission Control · {{ site_name }}{% endblock %}
+{% block page_title %}Mission Control Agent{% endblock %}
+{% block page_sub %}Conversational investigation over live observability data (read-only sim){% endblock %}
+{% block content %}
+<div class="grid grid-2">
+  <div class="panel span-2">
+    <h2>Ask about the campus</h2>
+    <p class="hint">GPU, PUE, cooling, alerts/Slack, storage, network, cost, or APIs — answers include evidence links.</p>
+    <div class="btn-row" style="align-items:stretch">
+      <input id="agent-q" style="flex:1;min-width:12rem;padding:0.55rem 0.75rem;border-radius:8px;border:1px solid var(--line);background:var(--graphite);color:var(--ink)" placeholder="Which critical alerts went to Slack?" />
+      <button class="btn primary" id="agent-ask" type="button">Ask</button>
+    </div>
+    <div id="agent-answer" class="panel" style="margin-top:0.85rem;background:var(--graphite)">
+      <p class="hint" style="margin:0">Ask a question to get started. API: <code>POST /api/observability/agent</code></p>
+    </div>
+    <div class="btn-row" style="margin-top:0.75rem" id="agent-followups"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const q = document.getElementById("agent-q");
+const answerEl = document.getElementById("agent-answer");
+const followEl = document.getElementById("agent-followups");
+
+async function ask(text) {
+  const question = (text || q.value || "").trim();
+  if (!question) return;
+  q.value = question;
+  answerEl.innerHTML = `<p class="hint" style="margin:0">Investigating…</p>`;
+  const res = await fetch("/api/observability/agent", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({question, context_path: "/observability/mission-control"}),
+  });
+  const data = await res.json();
+  const evidence = (data.evidence || []).map((e) => {
+    if (e.href) return `<li><a href="${e.href}">${e.kind}: ${e.name || e.message || e.href}</a>${e.value != null ? ` · <span class="mono">${e.value}</span>` : ""}</li>`;
+    return `<li>${e.kind}: ${e.name || e.message || ""}</li>`;
+  }).join("");
+  answerEl.innerHTML = `
+    <p style="margin:0 0 0.65rem;line-height:1.5">${data.answer || ""}</p>
+    <h3 style="margin:0 0 0.35rem;font-size:0.9rem">Evidence</h3>
+    <ul style="margin:0;padding-left:1.1rem">${evidence || "<li class='hint'>None</li>"}</ul>
+  `;
+  followEl.innerHTML = (data.suggested_followups || []).map((f) =>
+    `<button type="button" class="btn btn-sm follow">${f}</button>`
+  ).join("");
+  followEl.querySelectorAll(".follow").forEach((btn) => {
+    btn.addEventListener("click", () => ask(btn.textContent));
+  });
+}
+document.getElementById("agent-ask").addEventListener("click", () => ask());
+q.addEventListener("keydown", (e) => { if (e.key === "Enter") ask(); });
+</script>
+{% endblock %}

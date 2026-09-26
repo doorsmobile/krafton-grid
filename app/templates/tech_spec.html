@@ -1,0 +1,375 @@
+{% extends "base.html" %}
+{% block title %}Tech Spec · {{ site_name }}{% endblock %}
+{% block page_title %}Tech Spec{% endblock %}
+{% block page_sub %}{{ release_name }} — stack, code map, charts, vendor APIs, Redis schema{% endblock %}
+{% block content %}
+<div class="grid grid-2">
+  <div class="panel span-2">
+    <h2>1. Runtime Architecture</h2>
+    <p class="hint">Browser → FastAPI → Redis live store ← Simulation engine (Python thread)</p>
+    <div class="arch-flow" aria-label="Architecture flow">
+      <div class="arch-node">
+        <strong>PC Browser</strong>
+        <span>Jinja pages · Highcharts · 2s poll</span>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node">
+        <strong>FastAPI</strong>
+        <span>HTML routes · JSON APIs · static</span>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node">
+        <strong>Redis</strong>
+        <span>live · series · alerts · catalogs</span>
+      </div>
+      <div class="arch-arrow">←</div>
+      <div class="arch-node accent">
+        <strong>Sim Engine</strong>
+        <span>tick every {{ sim_interval }}s · vendor probe map</span>
+      </div>
+    </div>
+    <div class="arch-flow secondary" aria-label="Southbound vendors">
+      <div class="arch-node wide">
+        <strong>Southbound (simulated today)</strong>
+        <span>REST / MQTT / Modbus / BACnet / OPC UA / SNMP bridges → normalized metrics</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>2. Tech Stack</h2>
+    <p class="hint">Current implementation choices</p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Layer</th><th>Choice</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td>Language</td><td><strong>Python 3</strong></td><td>API, sim engine, templates</td></tr>
+          <tr><td>Web</td><td><strong>FastAPI + Uvicorn</strong></td><td>HTTP server, lifespan hooks</td></tr>
+          <tr><td>UI</td><td><strong>Jinja2 HTML</strong></td><td>Server-rendered DCIM pages</td></tr>
+          <tr><td>Charts</td><td><strong>Highcharts 11</strong></td><td>Trend / gauge / column / pie</td></tr>
+          <tr><td>State</td><td><strong>Redis</strong></td><td>Live snapshot, series, alerts</td></tr>
+          <tr><td>HTTP client</td><td>httpx</td><td>Reserved for real vendor calls</td></tr>
+          <tr><td>Brand</td><td>Krafton CI</td><td>Black + red <code>#F9423A</code></td></tr>
+          <tr><td>Package</td><td><code>{{ release_name }}</code></td><td>Versioned local releases</td></tr>
+          <tr><td>Default port</td><td><strong>8002</strong> (Cursor)</td><td>ChatGPT <strong>8001</strong> · Claude <strong>8003</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>3. Code Map</h2>
+    <p class="hint">Repository layout under <code>{{ release_name }}</code></p>
+    <pre class="code-block">{{ release_name }}/
+├── VERSION
+├── requirements.txt
+├── run_mac.sh
+├── scripts/
+└── app/
+    ├── config.py
+    ├── main.py                 # thin FastAPI entry · include_routers
+    ├── web/                    # HTTP presentation
+    │   ├── nav.py              # sidebar tree
+    │   ├── deps.py             # Jinja templates · page_ctx
+    │   └── routers/            # domain APIRouter modules
+    │       ├── main_pages.py · facility.py · it_cluster.py
+    │       ├── network.py · gpu_platform.py · cloud.py
+    │       ├── cost.py · operations.py · platform.py
+    │       ├── api_core.py · api_network.py · api_it.py · api_sim.py
+    │       └── observability.py · api_observability.py
+    ├── sim/                    # simulation domain packages
+    │   ├── engine/             # SimulationEngine + mixins
+    │   │   ├── engine.py · seed.py · bundles.py · network_store.py
+    │   ├── facility/           # halls · modules · vendors
+    │   ├── it/                 # GPU / storage / k8s / racks / inventory
+    │   ├── network/            # Arista devices · ifaces · topology · metrics
+    │   ├── cloud/              # AWS/GCP/NHN · Slurm · cost
+    │   ├── gpu_platform/       # Overview / Workloads / Ops catalogs
+    │   └── observability/      # PromQL/LogQL · relay · Slack alerts · agent
+    ├── templates/
+    └── static/</pre>
+    <p class="hint" style="margin-top:0.75rem">Legacy shims keep <code>app.sim.it_fabric</code> / <code>network_fabric</code> / <code>cloud_cost</code> / <code>fractos</code> imports working; prefer the domain packages above.</p>
+  </div>
+
+  <div class="panel span-2">
+    <h2>4. Pages &amp; Charts (Highcharts)</h2>
+    <p class="hint">UI surfaces and chart types wired to Redis series / live JSON</p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Page</th><th>Path</th><th>Charts / visuals</th><th>Primary data</th></tr></thead>
+        <tbody>
+          <tr><td>Main</td><td><code>/</code></td><td>3×3 Facility / AI / Cloud cards (KPI · gauge · spark) — Cost not on Main</td><td><code>/api/live</code>, <code>/api/it</code>, <code>/api/cloud</code></td></tr>
+          <tr><td>Campus Aerial</td><td><code>/campus-aerial</code></td><td>조감도 master plan · download PNG · full-size view</td><td>static campus image</td></tr>
+          <tr><td>Power / Cooling / Capacity</td><td><code>/power</code> …</td><td>Facility trends &amp; gauges</td><td>Redis facility series</td></tr>
+          <tr><td>GPU Monitoring</td><td><code>/gpu-fleet</code> · <code>/device/{id}</code> · <code>/node/{id}</code> · <code>/pod/{id}</code></td><td>Datadog-style Fleet Explorer (funnel · cost · monitors · provisioning/performance)</td><td><code>/api/gpu-fleet</code></td></tr>
+          <tr><td>Storage</td><td><code>/storage</code> · <code>/cluster/{id}</code></td><td>Clusters · Top Talkers (IOPS) · volume detail pages</td><td><code>/api/storage/*</code></td></tr>
+          <tr><td>Network</td><td><code>/network</code> · <code>/device/{id}</code></td><td>Overview panels + detail pages (uplink / talkers / topo / inventory)</td><td><code>/api/network/*</code></td></tr>
+          <tr><td>Kubernetes</td><td><code>/kubernetes</code> · <code>/node/{id}</code></td><td>Hot nodes · inventory · node detail pages</td><td><code>/api/kubernetes/*</code></td></tr>
+          <tr><td>GPU Platform</td><td><code>/gpu-platform</code> · <code>/workloads</code> · <code>/ops</code></td><td>Overview · Workloads (jobs/partition/RCS/images) · Ops (projects/nodes/monitor/ecosystem/reports)</td><td><code>/api/gpu-platform</code></td></tr>
+          <tr><td>Cloud AWS / GCP / NHN</td><td><code>/cloud/*</code></td><td>GPUaaS / Storage API catalogs</td><td><code>/api/cloud</code></td></tr>
+          <tr><td>Cost Summary / DC / Cloud</td><td><code>/cost</code> · <code>/cost/dc</code> · <code>/cost/cloud</code></td><td>Live KPIs + 12-month trends + line tables</td><td><code>/api/cost</code></td></tr>
+          <tr><td>Inventory</td><td><code>/inventory</code></td><td>Unified SKU catalog</td><td><code>/api/it</code></td></tr>
+          <tr><td>Rack View</td><td><code>/rack-view</code></td><td>Floor map tiles by type</td><td>rack_map demo</td></tr>
+          <tr><td>Alerts</td><td><code>/alerts</code></td><td>Facility + IT alarms → Slack</td><td><code>/api/alerts</code> · deliveries</td></tr>
+          <tr><td>Slack / Webhooks</td><td><code>/alerts/integrations</code></td><td>Slack OAuth · webhook · generic</td><td><code>/api/alerts/integrations</code></td></tr>
+          <tr><td>Alert Config</td><td><code>/alerts/config</code></td><td>Per-alert routing by category</td><td><code>/api/alerts/config</code></td></tr>
+          <tr><td>Observability</td><td><code>/observability</code> · explore · metrics · logs · relay · usage · agent</td><td>CoreWeave Observe–style hub</td><td><code>/api/observability/*</code></td></tr>
+          <tr><td>API Catalog</td><td><code>/developers/api</code></td><td>Every page ↔ JSON API map</td><td><code>/api/catalog</code></td></tr>
+          <tr><td>Tech Spec</td><td><code>/tech-spec</code></td><td>This documentation page</td><td>static + live site meta</td></tr>
+          <tr><td>Vendors &amp; API</td><td><code>/vendors</code></td><td>Catalog + Sample API probe JSON</td><td><code>/api/vendors</code></td></tr>
+          <tr><td>Requirements</td><td><code>/platform/requirements</code></td><td>입력 조건 MD 보기 + 다운로드</td><td><code>docs/REQUIREMENTS.md</code></td></tr>
+          <tr><td>Simulation</td><td><code>/simulation</code></td><td>Mode controls, Redis dump/export</td><td><code>/api/sim/*</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="stat-row"><span class="stat-label">Chart library path</span><span class="stat-value mono">app/static/vendor/highcharts/</span></div>
+    <div class="stat-row"><span class="stat-label">Theme / helpers</span><span class="stat-value mono">app/static/js/charts.js</span></div>
+    <div class="stat-row"><span class="stat-label">Live poller</span><span class="stat-value mono">app/static/js/app.js → GET /api/live every 2s</span></div>
+  </div>
+
+  <div class="panel span-2">
+    <h2>5. Vendor Integrations (current)</h2>
+    <p class="hint">Facility / power vendors selected for AIDC; APIs are simulated gateways today (sample probe returns live-correlated values)</p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Vendor</th>
+            <th>Category</th>
+            <th>Protocol</th>
+            <th>Base URL (sim)</th>
+            <th>Auth</th>
+            <th>Sample metric</th>
+            <th>Coverage</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for v in vendors %}
+          <tr>
+            <td><strong>{{ v.name }}</strong><div class="muted">{{ v.products|join(', ') }}</div></td>
+            <td>{{ v.category }}</td>
+            <td>{{ v.api.protocol }}</td>
+            <td class="mono">{{ v.api.base_url }}</td>
+            <td>{{ v.api.auth }}</td>
+            <td class="mono">{{ v.api.sample_metric }}</td>
+            <td>{{ v.coverage|join(' · ') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="hint" style="margin-top:0.75rem">Probe endpoint: <code>GET /api/vendor/{vendor_id}/sample</code> — maps sample metrics onto Redis live fields (IT load, loop temps, GPU util, etc.).</p>
+  </div>
+
+  <div class="panel">
+    <h2>6. Redis Schema</h2>
+    <p class="hint">Prefix <code>dcim:aidc100:</code></p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Key</th><th>Type</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">…:live</td><td>string(JSON)</td><td>Current campus snapshot</td></tr>
+          <tr><td class="mono">…:history</td><td>list</td><td>Rolling ticks</td></tr>
+          <tr><td class="mono">…:series:{metric}</td><td>list</td><td>Highcharts time series</td></tr>
+          <tr><td class="mono">…:modules</td><td>string(JSON)</td><td>5×20 MW modular centers</td></tr>
+          <tr><td class="mono">…:halls</td><td>string(JSON)</td><td>M1 hall topology</td></tr>
+          <tr><td class="mono">…:vendors</td><td>string(JSON)</td><td>Vendor + API catalog</td></tr>
+          <tr><td class="mono">…:power_chain</td><td>string(JSON)</td><td>Utility→rack path</td></tr>
+          <tr><td class="mono">…:cooling_chain</td><td>string(JSON)</td><td>Plant→cold plate path</td></tr>
+          <tr><td class="mono">…:alerts</td><td>list</td><td>Alarm console</td></tr>
+          <tr><td class="mono">…:site / …:meta</td><td>string / hash</td><td>Site envelope, sim mode</td></tr>
+          <tr><td class="mono">…:it_summary</td><td>string(JSON)</td><td>B300 / IBM / fabric / K8s design</td></tr>
+          <tr><td class="mono">…:gpu_pods</td><td>string(JSON)</td><td>Aggregated GPU pods</td></tr>
+          <tr><td class="mono">…:storage_clusters</td><td>string(JSON)</td><td>IBM Storage 8 clusters</td></tr>
+          <tr><td class="mono">…:network_devices</td><td>string(JSON)</td><td>Arista + IB switches (rich inventory)</td></tr>
+          <tr><td class="mono">…:net:interfaces</td><td>string(JSON)</td><td>Tracked interface catalog</td></tr>
+          <tr><td class="mono">…:net:topology</td><td>string(JSON)</td><td>Nodes + fabric links</td></tr>
+          <tr><td class="mono">…:net:latest</td><td>string(JSON)</td><td>Latest 1-min sample for all ifaces</td></tr>
+          <tr><td class="mono">…:net:hist:{dev}/{iface}</td><td>list</td><td>60× minute samples (in/out/util/err/disc)</td></tr>
+          <tr><td class="mono">…:net:collector</td><td>hash</td><td>Last sample ts / iface count</td></tr>
+          <tr><td class="mono">…:net:meta</td><td>string(JSON)</td><td>Interval 60s · history 60 min</td></tr>
+          <tr><td class="mono">…:k8s_nodes</td><td>string(JSON)</td><td>Dell ×30 nodes</td></tr>
+          <tr><td class="mono">…:rack_map</td><td>string(JSON)</td><td>Floor map tiles</td></tr>
+          <tr><td class="mono">…:inventory</td><td>string(JSON)</td><td>Unified asset SKUs</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>7. Public REST Surface</h2>
+    <p class="hint">Stable JSON for UI and future northbound consumers</p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Method</th><th>Path</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>GET</td><td class="mono">/api/live</td><td>Full live snapshot (facility + IT)</td></tr>
+          <tr><td>GET</td><td class="mono">/api/it</td><td>IT fabric bundle + live slice</td></tr>
+          <tr><td>GET</td><td class="mono">/api/network</td><td>Network bundle (uplinks · talkers · topology)</td></tr>
+          <tr><td>GET</td><td class="mono">/api/network/uplinks</td><td>Uplink traffic ranked by bps</td></tr>
+          <tr><td>GET</td><td class="mono">/api/network/toptalkers?window=</td><td>Top talkers from Redis 1h rings</td></tr>
+          <tr><td>GET</td><td class="mono">/api/network/topology</td><td>Leaf–spine + IB graph</td></tr>
+          <tr><td>GET</td><td class="mono">/api/network/inventory?q=</td><td>Device search</td></tr>
+          <tr><td>GET</td><td class="mono">/api/network/device/{id}</td><td>All ifaces + 1h series</td></tr>
+          <tr><td>GET</td><td class="mono">/api/network/iface/{dev}/{name}</td><td>Single iface history</td></tr>
+          <tr><td>GET</td><td class="mono">/api/cloud</td><td>AWS / GCP / NHN catalogs + live</td></tr>
+          <tr><td>GET</td><td class="mono">/api/cost</td><td>DC + Cloud cost baseline + live</td></tr>
+          <tr><td>GET</td><td class="mono">/api/gpu-platform</td><td>GPU Platform bundle (alias <code>/api/fractos</code>)</td></tr>
+          <tr><td>GET</td><td class="mono">/api/history?limit=</td><td>Recent ticks</td></tr>
+          <tr><td>GET</td><td class="mono">/api/series/{metric}</td><td>Chart series</td></tr>
+          <tr><td>GET</td><td class="mono">/api/modules · /halls · /site</td><td>Topology</td></tr>
+          <tr><td>GET</td><td class="mono">/api/vendors</td><td>+ runtime health</td></tr>
+          <tr><td>GET</td><td class="mono">/api/vendor/{id}/sample</td><td>Simulated vendor API</td></tr>
+          <tr><td>GET</td><td class="mono">/api/alerts</td><td>Alarm list</td></tr>
+          <tr><td>POST</td><td class="mono">/api/sim/mode</td><td>normal/stress/…</td></tr>
+          <tr><td>POST</td><td class="mono">/api/sim/alert</td><td>Inject alarm</td></tr>
+          <tr><td>GET</td><td class="mono">/api/sim/dump · export.json</td><td>Full bundle</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel span-2">
+    <h2>8. Site Model (capacity)</h2>
+    <div class="hero-metrics" style="margin:0;color:inherit">
+      <div><strong>{{ site.module_mw|default(20) }} MW</strong><span>Modular block size</span></div>
+      <div><strong>{{ site.module_count|default(5) }} ×</strong><span>Planned modules</span></div>
+      <div><strong>{{ site.design_capacity_mw|default(100) }} MW</strong><span>Full site envelope</span></div>
+      <div><strong>{{ site.critical_it_mw|default(20) }} MW</strong><span>M1 online critical IT</span></div>
+      <div><strong>{{ site.target_pue|default(1.18) }}</strong><span>Target PUE</span></div>
+    </div>
+    <p class="hint" style="margin-top:0.85rem">{{ site.build_model|default('5×20 MW modular centers → 100 MW campus') }} · {{ site.topology|default('') }}</p>
+  </div>
+
+  <div class="panel span-2">
+    <h2>9. IT Fabric (Facility + IT unified)</h2>
+    <p class="hint">Demo inventory seeded in <code>app/sim/it_fabric.py</code> → Redis <code>it_*</code> keys · API <code>GET /api/it</code></p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Domain</th><th>Design</th><th>Vendor / SKU</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>GPU</td><td><strong>5,000 × NVIDIA B300</strong></td><td>HGX nodes (8 GPU) · Quantum-2 IB</td><td>625 nodes · 40 racks</td></tr>
+          <tr><td>Storage</td><td><strong>IBM Storage 100 PB</strong></td><td>Storage Scale / ESS · NVMe-oF / S3</td><td>8 clusters · 24 racks</td></tr>
+          <tr><td>Ethernet</td><td>Arista spine/leaf</td><td>7800R3 ×8 · 7060X6 ×48</td><td>CloudVision / eAPI</td></tr>
+          <tr><td>InfiniBand</td><td>NVIDIA IB fabric</td><td>Quantum-2 QM9700 ×16</td><td>UFM / DCGM telemetry</td></tr>
+          <tr><td>Kubernetes</td><td>Dell ×30</td><td>PowerEdge XE9680</td><td>3 CP + 27 workers</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="stat-row"><span class="stat-label">Code</span><span class="stat-value mono">app/sim/it_fabric.py</span></div>
+    <div class="stat-row"><span class="stat-label">GPU ops</span><span class="stat-value">Slurm + CubeFlow per-node monitoring on GPU Fleet</span></div>
+    <div class="stat-row"><span class="stat-label">Menus</span><span class="stat-value">Facility · IT (incl. Network) · GPU Platform · Cloud · Ops · Platform · Cost</span></div>
+    <div class="stat-row"><span class="stat-label">Theme</span><span class="stat-value">Black canvas · graphite cards · teal/gray charts · red=critical only</span></div>
+    <div class="stat-row"><span class="stat-label">Redis</span><span class="stat-value mono">dcim:aidc100:cursor:*</span></div>
+  </div>
+
+  <div class="panel span-2">
+    <h2>9b. Network fabric (Arista-first telemetry)</h2>
+    <p class="hint"><code>app/sim/network/</code> · <strong>IT Cluster → Network</strong> overview · collector every <strong>60s</strong> · Redis <strong>60 min</strong> rings · detail via <strong>dedicated pages</strong> (not modal)</p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Surface</th><th>Path / API</th><th>What it shows</th></tr></thead>
+        <tbody>
+          <tr><td>Overview</td><td><code>/network</code></td><td>Uplink · Top Talkers · Topology · Inventory panels on one screen</td></tr>
+          <tr><td>Device page</td><td><code>/network/device/{id}</code> · <code>GET /api/network/device/{id}</code></td><td>All ifaces · in/out bps · errors · discards · 1h chart</td></tr>
+          <tr><td>List pages</td><td><code>/network/uplinks</code> · <code>/toptalkers</code> · <code>/inventory</code></td><td>Full uplinks · talkers · searchable inventory</td></tr>
+          <tr><td>Legacy</td><td><code>/network/topology</code></td><td>302 → <code>/network</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3 style="margin-top:1rem;font-size:0.95rem">Storage / Kubernetes / GPU Fleet (same UX)</h3>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Domain</th><th>Overview</th><th>Detail pages</th><th>API</th></tr></thead>
+        <tbody>
+          <tr><td>Storage</td><td><code>/storage</code> clusters + IOPS talkers</td><td><code>/storage/cluster/{id}</code> · volumes IOPS/latency/thr</td><td><code>/api/storage/*</code></td></tr>
+          <tr><td>Kubernetes</td><td><code>/kubernetes</code> hot nodes + inventory</td><td><code>/kubernetes/node/{id}</code> workloads + 1h</td><td><code>/api/kubernetes/*</code></td></tr>
+          <tr><td>GPU Monitoring</td><td><code>/gpu-fleet</code> funnel · OOTB monitors · hosts/devices</td><td><code>/gpu-fleet/device/{id}</code> · <code>/node/{id}</code> · <code>/pod/{id}</code></td><td><code>/api/gpu-fleet</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3 style="margin-top:1rem;font-size:0.95rem">Collector design</h3>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Topic</th><th>Behavior</th></tr></thead>
+        <tbody>
+          <tr><td>Sources (sim today)</td><td>Arista eAPI / CloudVision + NVIDIA UFM counters (normalized in sim)</td></tr>
+          <tr><td>Cadence</td><td>Once per calendar minute (<code>NET_SAMPLE_INTERVAL_SEC=60</code>), independent of 2s facility ticks</td></tr>
+          <tr><td>Hot path</td><td><code>…:net:latest</code> JSON snapshot → Uplink / Top Talkers rank without scanning history</td></tr>
+          <tr><td>1h rings</td><td><code>…:net:hist:{device}/{iface}</code> list · RPUSH + LTRIM 60 · fields <code>in/out/u/e/d</code></td></tr>
+          <tr><td>Tracked ports</td><td>DCIM focus set per switch (uplinks, sample access, peers, mgmt) — not every physical ASIC port</td></tr>
+          <tr><td>Metrics</td><td>in_bps · out_bps · util_pct · errors · discards · oper · speed_bps</td></tr>
+          <tr><td>Why Redis</td><td>Sub-ms Top Talkers for operators; long-term archive can later spill to TSDB while Redis stays the 1h cache</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel span-2">
+    <h2>10. Cloud providers (API-backed demo)</h2>
+    <p class="hint"><code>app/sim/cloud_cost.py</code> · Redis <code>cloud_catalog</code> · <code>GET /api/cloud</code> · Vendors probe for <code>nhn</code> / <code>gcp</code> / <code>aws</code></p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Provider</th><th>Service</th><th>API</th><th>Use</th></tr></thead>
+        <tbody>
+          <tr><td><strong>AWS</strong></td><td>GPUaaS (EC2 / Capacity Blocks)</td><td>SDK + CloudWatch</td><td>Regional GPUaaS</td></tr>
+          <tr><td><strong>GCP</strong></td><td>Cloud Storage + PD</td><td>JSON API / ADC</td><td>Datasets · checkpoints · archives</td></tr>
+          <tr><td><strong>NHN Cloud</strong></td><td>GPUaaS</td><td>REST AppKey</td><td>Burst / overflow GPU capacity</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel span-2">
+    <h2>10b. GPU Platform</h2>
+    <p class="hint">Generalized from sample GPU-mgmt features · <code>app/sim/fractos.py</code> · <code>GET /api/gpu-platform</code> · legacy <code>/fractos/*</code> redirects here</p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Group</th><th>Path</th><th>Coverage</th></tr></thead>
+        <tbody>
+          <tr><td>Overview</td><td><code>/gpu-platform</code></td><td>Console · projects · notices · live GPU util</td></tr>
+          <tr><td>Workloads</td><td><code>/gpu-platform/workloads</code></td><td>Jobs/schedule · partitioning · RCS · images</td></tr>
+          <tr><td>Ops</td><td><code>/gpu-platform/ops</code></td><td>Projects/quota · nodes · monitor · ecosystem · reports</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel span-2">
+    <h2>11. Cost model</h2>
+    <p class="hint">Monthly KRW · <code>GET /api/cost</code> · live jitter on sim tick</p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Scope</th><th>Lines</th><th>Path</th></tr></thead>
+        <tbody>
+          <tr><td>Summary</td><td>DC+Cloud KPIs · MoM · YTD · stacked trend</td><td><code>/cost</code></td></tr>
+          <tr><td>DC</td><td>전기요금 · 세금 · 관리비 · 인건비 + monthly</td><td><code>/cost/dc</code></td></tr>
+          <tr><td>Cloud</td><td>AWS · GCP · NHN + monthly</td><td><code>/cost/cloud</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel span-2">
+    <h2>12. Future backlog (document here as we grow)</h2>
+    <p class="hint">Placeholder track for real integrations — update this section when southbound goes live</p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Item</th><th>Status</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Real EcoStruxure / Vertiv / CoolIT credentials</td><td><span class="badge idle">planned</span></td><td>Replace sim probe with httpx clients</td></tr>
+          <tr><td>Real AWS / GCP / NHN credentials</td><td><span class="badge idle">planned</span></td><td>Replace catalog with live List/Describe calls</td></tr>
+          <tr><td>Slurm REST / CubeFlow production collectors</td><td><span class="badge warn">partial</span></td><td>Demo tables live; wire real endpoints next</td></tr>
+          <tr><td>Arista CVP / eAPI live interface polling</td><td><span class="badge warn">partial</span></td><td>1-min Redis rings live in sim; swap sampler for real eAPI</td></tr>
+          <tr><td>NVIDIA UFM IB counters</td><td><span class="badge warn">partial</span></td><td>Same collector path as Ethernet ifaces</td></tr>
+          <tr><td>OPC UA / Modbus persistent collectors</td><td><span class="badge idle">planned</span></td><td>Southbound workers → Redis writers</td></tr>
+          <tr><td>Northbound CMDB / ITSM export</td><td><span class="badge idle">planned</span></td><td>Webhook from alerts list</td></tr>
+          <tr><td>AuthN for DCIM console</td><td><span class="badge idle">planned</span></td><td>Not required for local sim</td></tr>
+          <tr><td>M2–M5 progressive energization scenarios</td><td><span class="badge warn">partial</span></td><td>Commissioning load on M2 already simulated</td></tr>
+          <tr><td>Time-series DB (Influx/Timescale)</td><td><span class="badge idle">planned</span></td><td>Redis remains hot cache</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Rack View · {{ site_name }}{% endblock %}
+{% block page_title %}Rack View{% endblock %}
+{% block page_sub %}Facility + IT racks — GPU / Storage / Network / Kubernetes{% endblock %}
+{% block content %}
+<div class="grid grid-3">
+  <div class="panel">
+    <h2>Legend</h2>
+    <div class="rack-legend">
+      <span class="rack-pill type-gpu">GPU B300</span>
+      <span class="rack-pill type-storage">IBM Storage</span>
+      <span class="rack-pill type-network">Arista / IB</span>
+      <span class="rack-pill type-kubernetes">Dell K8s</span>
+    </div>
+    <div class="stat-row" style="margin-top:1rem"><span class="stat-label">GPU racks (design)</span><span class="stat-value">{{ summary.gpu.racks }}</span></div>
+    <div class="stat-row"><span class="stat-label">Storage racks</span><span class="stat-value">{{ summary.storage.racks }}</span></div>
+    <div class="stat-row"><span class="stat-label">Shown on map</span><span class="stat-value">{{ racks|length }}</span></div>
+  </div>
+  <div class="panel span-2">
+    <h2>Floor map (sample)</h2>
+    <p class="hint">Representative subset for UI — full counts in Inventory / Tech Spec</p>
+    <div class="rack-grid">
+      {% for r in racks %}
+      <div class="rack-tile type-{{ r.type }} status-{{ r.status }}" title="{{ r.assets }}">
+        <div class="rack-id">{{ r.id }}</div>
+        <div class="rack-meta">{{ r.row }} · {{ r.label }}</div>
+        <div class="rack-kw">{{ r.kw }} kW · U{{ r.u_used }}</div>
+        <div class="rack-status">{{ r.status }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Cost Summary · {{ site_name }}{% endblock %}
+{% block page_title %}Cost — Summary{% endblock %}
+{% block page_sub %}DC + Cloud 통합 · {{ trends.summary.latest_month }} · 월별 트렌드{% endblock %}
+{% block content %}
+<div class="grid grid-4">
+  <a class="panel panel-link" href="/cost/dc">
+    <h3>DC (이번 달)</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Live</span><span class="stat-value" id="sum-dc">₩{{ '{:,}'.format(cost_live.dc.live_total) }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Trend</span><span class="stat-value">₩{{ '{:,}'.format(trends.summary.latest_dc) }}</span></div>
+    <div class="link-hint">DC detail →</div>
+  </a>
+  <a class="panel panel-link" href="/cost/cloud">
+    <h3>Cloud (이번 달)</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Live</span><span class="stat-value" id="sum-cloud">₩{{ '{:,}'.format(cost_live.cloud.live_total) }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Trend</span><span class="stat-value">₩{{ '{:,}'.format(trends.summary.latest_cloud) }}</span></div>
+    <div class="link-hint">Cloud detail →</div>
+  </a>
+  <div class="panel">
+    <h3>Grand total</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Live</span><span class="stat-value" id="sum-grand">₩{{ '{:,}'.format(cost_live.grand_total) }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">MoM</span><span class="stat-value">{{ trends.summary.mom_pct }}%</span></div>
+  </div>
+  <div class="panel">
+    <h3>12-month YTD</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">DC</span><span class="stat-value">₩{{ '{:,}'.format(trends.summary.ytd_dc) }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Cloud</span><span class="stat-value">₩{{ '{:,}'.format(trends.summary.ytd_cloud) }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Total</span><span class="stat-value">₩{{ '{:,}'.format(trends.summary.ytd_grand) }}</span></div>
+  </div>
+</div>
+
+<div class="grid grid-3" style="margin-top:1rem">
+  <div class="panel span-2">
+    <h2>Monthly trend — DC vs Cloud</h2>
+    <p class="hint">최근 12개월 · stacked column + grand total line</p>
+    <div id="chart-cost-trend" class="chart chart-lg"></div>
+  </div>
+  <div class="panel">
+    <h2>Mix (live)</h2>
+    <div id="chart-cost-mix" class="chart chart-sm"></div>
+    <div class="stat-row"><span class="stat-label">Latest month</span><span class="stat-value">{{ trends.summary.latest_month }}</span></div>
+  </div>
+</div>
+
+<div class="grid grid-3" style="margin-top:1rem">
+  <div class="panel span-3">
+    <h2>Monthly table (KRW)</h2>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Month</th>
+            <th>DC</th>
+            <th>Cloud</th>
+            <th>Grand</th>
+            <th>Δ MoM</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in trends.months %}
+          {% set i = loop.index0 %}
+          {% set prev = trends.grand_total[i-1] if i > 0 else trends.grand_total[i] %}
+          {% set delta = ((trends.grand_total[i] - prev) / prev * 100) if prev else 0 %}
+          <tr>
+            <td class="mono">{{ m }}</td>
+            <td>₩{{ '{:,}'.format(trends.dc.total[i]) }}</td>
+            <td>₩{{ '{:,}'.format(trends.cloud.total[i]) }}</td>
+            <td><strong>₩{{ '{:,}'.format(trends.grand_total[i]) }}</strong></td>
+            <td class="mono">{{ '%.1f'|format(delta) }}%</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const trends = {{ trends | tojson }};
+  const live = {{ cost_live | tojson }};
+  DCIMCharts.columnSeriesChart(
+    "chart-cost-trend",
+    trends.months,
+    [
+      { name: "DC", data: trends.dc.total },
+      { name: "Cloud", data: trends.cloud.total, color: DCIMCharts.palette.steel },
+      { name: "Grand", data: trends.grand_total, type: "line", color: DCIMCharts.palette.amber },
+    ],
+    { stacked: true, yTitle: "KRW" }
+  );
+  DCIMCharts.pieChart("chart-cost-mix", [
+    { name: "DC", y: live.dc.live_total },
+    { name: "Cloud", y: live.cloud.live_total },
+  ]);
+  const won = (n) => "₩" + Number(n).toLocaleString("ko-KR");
+  DCIM.onLive.push((snap) => {
+    if (!snap.cost) return;
+    document.getElementById("sum-dc").textContent = won(snap.cost.dc.live_total);
+    document.getElementById("sum-cloud").textContent = won(snap.cost.cloud.live_total);
+    document.getElementById("sum-grand").textContent = won(snap.cost.grand_total);
+  });
+});
+</script>
+{% endblock %}

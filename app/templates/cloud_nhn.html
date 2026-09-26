@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}NHN GPUaaS · {{ site_name }}{% endblock %}
+{% block page_title %}Cloud — NHN GPUaaS{% endblock %}
+{% block page_sub %}{{ provider.service }} · click an instance for detail page{% endblock %}
+{% block content %}
+<p class="hint"><a href="/cloud">← Cloud overview</a></p>
+
+<div class="grid grid-4">
+  <div class="panel">
+    <h3>Live</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">GPU util</span><span class="stat-value" id="nhn-util">{{ cloud_live.nhn_gpu_util_pct }}%</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Active</span><span class="stat-value" id="nhn-n">{{ cloud_live.nhn_active_instances }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Fleet</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Instances</span><span class="stat-value">{{ provider.summary.instances }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">GPUs</span><span class="stat-value">{{ provider.summary.gpus_total }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>API</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Base</span><span class="stat-value mono" style="font-size:0.7rem">{{ provider.api.base_url }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Probe</span><span class="stat-value"><a href="/vendors">Vendors →</a></span></div>
+  </div>
+  <div class="panel">
+    <h3>Util chart</h3>
+    <div id="chart-nhn" class="chart chart-sm"></div>
+  </div>
+</div>
+
+<div class="grid grid-1" style="margin-top:1rem">
+  <div class="panel">
+    <h2>Instances</h2>
+    <p class="hint">Click a row → util / billing 1h detail page.</p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>ID</th><th>Name</th><th>Region</th><th>Flavor</th><th>GPU</th><th>Qty</th><th>Util</th><th>₩/h</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for i in provider.instances %}
+          <tr class="click-row" onclick="location.href='/cloud/nhn/instance/{{ i.id }}'">
+            <td class="mono"><a href="/cloud/nhn/instance/{{ i.id }}">{{ i.id }}</a></td>
+            <td>{{ i.name }}</td>
+            <td>{{ i.region }}</td>
+            <td class="mono">{{ i.flavor }}</td>
+            <td>{{ i.gpu_model }}</td>
+            <td>{{ i.gpus }}</td>
+            <td>
+              <div class="util-bar"><span style="width:{{ [i.util_pct, 100]|min }}%"></span></div>
+              {{ i.util_pct }}%
+            </td>
+            <td>{{ '{:,}'.format(i.hourly_krw) }}</td>
+            <td><span class="badge {{ 'ok' if i.status=='ACTIVE' else 'warn' }}">{{ i.status }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", async () => {
+  const series = await DCIMCharts.fetchSeries("nhn_gpu_util_pct");
+  const chart = DCIMCharts.lineChart("chart-nhn", [{ name: "NHN GPU util %", data: series }], { yTitle: "%" });
+  DCIM.onLive.push((live) => {
+    chart.series[0].addPoint([Date.parse(live.ts), live.nhn_gpu_util_pct], true, chart.series[0].data.length > 60);
+    document.getElementById("nhn-util").textContent = live.nhn_gpu_util_pct + "%";
+    document.getElementById("nhn-n").textContent = live.nhn_active_instances;
+  });
+});
+</script>
+{% endblock %}

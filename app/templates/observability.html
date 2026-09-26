@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Observability · {{ site_name }}{% endblock %}
+{% block page_title %}Observability{% endblock %}
+{% block page_sub %}Metrics · logs · events — operators on pages, developers on APIs{% endblock %}
+{% block content %}
+<div class="grid grid-2">
+  <div class="panel span-2">
+    <h2>{{ o11y.brand }}</h2>
+    <p class="hint">{{ o11y.tagline }}</p>
+    <div class="stat-row">
+      <span class="stat-label">Simulated ingest</span>
+      <span class="stat-value mono">{{ '{:,}'.format(o11y.samples_per_sec_sim) }} samples/s</span>
+    </div>
+    <div class="btn-row" style="margin-top:0.75rem">
+      <a class="btn primary" href="/developers/api">API Catalog</a>
+      <a class="btn" href="/alerts/integrations">Slack destinations</a>
+      <a class="btn" href="/observability/mission-control">Mission Control</a>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Audiences</h2>
+    <p class="hint">Two surfaces, one telemetry plane</p>
+    {% for a in o11y.audiences %}
+    <div class="stat-row">
+      <span class="stat-label">{{ a.label }}</span>
+      <span class="stat-value" style="font-size:0.85rem;font-weight:500">{{ a.use }}</span>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="panel">
+    <h2>Live KPIs</h2>
+    <p class="hint">Pulled from <code>GET /api/observability</code></p>
+    <div class="stat-row"><span class="stat-label">IT Load</span><span class="stat-value mono">{{ o11y.kpis.it_load_mw }} MW</span></div>
+    <div class="stat-row"><span class="stat-label">PUE</span><span class="stat-value mono">{{ o11y.kpis.pue }}</span></div>
+    <div class="stat-row"><span class="stat-label">GPU util</span><span class="stat-value mono">{{ o11y.kpis.gpu_util_pct }}%</span></div>
+    <div class="stat-row"><span class="stat-label">Alerts open</span><span class="stat-value mono">{{ o11y.kpis.active_alerts }}</span></div>
+  </div>
+
+  <div class="panel span-2">
+    <h2>Solutions</h2>
+    <p class="hint">Inspired by CoreWeave Observe™ — mapped to Krafton Grid Facility · IT · Cloud</p>
+    <div class="grid grid-3">
+      {% for s in o11y.solutions %}
+      <a class="panel panel-link" href="{{ s.href }}" style="margin:0">
+        <h3 style="margin:0 0 0.35rem;font-size:1rem">{{ s.name }}</h3>
+        <p class="hint" style="margin:0 0 0.5rem">{{ s.summary }}</p>
+        <div class="stat-row"><span class="stat-label">API</span><span class="stat-value mono" style="font-size:0.75rem">{{ s.api }}</span></div>
+        <div class="link-hint">Open →</div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

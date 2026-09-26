@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ bucket.id }} · GCP{% endblock %}
+{% block page_title %}{{ bucket.id }}{% endblock %}
+{% block page_sub %}{{ bucket.location }} · {{ bucket.class }} · {{ '{:,}'.format(bucket.objects) }} objects{% endblock %}
+{% block content %}
+<p class="hint"><a href="/cloud">← Cloud</a> · <a href="/cloud/gcp">GCP Storage</a></p>
+
+<div class="grid grid-4">
+  <div class="panel">
+    <h3>Identity</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Class</span><span class="stat-value">{{ bucket.class }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Location</span><span class="stat-value" style="font-size:0.85rem">{{ bucket.location }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Capacity</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Used</span><span class="stat-value">{{ bucket.used_tb }} TB</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Objects</span><span class="stat-value">{{ '{:,}'.format(bucket.objects) }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Live</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Ops/s</span><span class="stat-value mono">{{ bucket.ops_per_s }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Thr</span><span class="stat-value mono">{{ bucket.throughput_mbs }} MB/s</span></div>
+  </div>
+  <div class="panel">
+    <h3>Score</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Hotness</span><span class="stat-value">{{ bucket.score }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Ring</span><span class="stat-value">60 min</span></div>
+  </div>
+</div>
+
+<div class="grid grid-2" style="margin-top:1rem">
+  <div class="panel">
+    <h2>1h ops/s</h2>
+    <div id="chart-ops" class="chart chart-lg"></div>
+  </div>
+  <div class="panel">
+    <h2>1h used TB</h2>
+    <div id="chart-used" class="chart chart-lg"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const series = {{ series_json|safe }};
+  Highcharts.chart("chart-ops", {
+    chart: { type: "areaspline", zoomType: "x" },
+    xAxis: { type: "datetime" },
+    yAxis: { title: { text: "ops/s" } },
+    series: [{ name: "Ops/s", data: series.ops.map(p => [Date.parse(p.t), p.v]), color: DCIMCharts.palette.teal }],
+    plotOptions: { areaspline: { fillOpacity: 0.12, marker: { enabled: false }, lineWidth: 2 } },
+  });
+  Highcharts.chart("chart-used", {
+    chart: { type: "spline" },
+    xAxis: { type: "datetime" },
+    yAxis: { title: { text: "TB" } },
+    series: [{ name: "Used TB", data: series.used.map(p => [Date.parse(p.t), p.v]), color: DCIMCharts.palette.steel }],
+    plotOptions: { spline: { marker: { enabled: false }, lineWidth: 2 } },
+  });
+});
+</script>
+{% endblock %}

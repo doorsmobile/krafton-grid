@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}API Catalog · Developers · {{ site_name }}{% endblock %}
+{% block page_title %}API Catalog{% endblock %}
+{% block page_sub %}Every operator page has a paired JSON API for internal and external developers{% endblock %}
+{% block content %}
+<div class="grid grid-2">
+  <div class="panel span-2">
+    <h2>Dual surface</h2>
+    <p class="hint">{{ catalog.concept.operators }}</p>
+    <p class="hint" style="margin-top:0.35rem">{{ catalog.concept.developers }}</p>
+    <div class="stat-row"><span class="stat-label">Mapped pages</span><span class="stat-value mono">{{ catalog.total }}</span></div>
+    <div class="btn-row" style="margin-top:0.75rem">
+      <a class="btn primary" href="/api/catalog" target="_blank">GET /api/catalog</a>
+      <a class="btn" href="/observability">Observability hub</a>
+      <a class="btn" href="/tech-spec">Tech Spec</a>
+    </div>
+  </div>
+
+  {% for section in catalog.sections %}
+  <div class="panel span-2">
+    <h2>{{ section }}</h2>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr><th>Page</th><th>UI path</th><th>API</th><th>Methods</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          {% for row in catalog.pages if row.section == section %}
+          <tr>
+            <td><strong>{{ row.page }}</strong></td>
+            <td class="mono"><a href="{{ row.path.split('{')[0].rstrip('/') or '/' }}">{{ row.path }}</a></td>
+            <td class="mono">{{ row.api }}</td>
+            <td class="mono">{{ row.methods | join(', ') }}</td>
+            <td>{{ row.notes }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

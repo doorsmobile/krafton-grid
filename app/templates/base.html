@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}{{ site_name }} DCIM{% endblock %}</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/brand/favicon-32.png" />
+  <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png" />
+  <link rel="icon" href="/static/brand/krafton-grid-mark.svg" type="image/svg+xml" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="/static/vendor/highcharts/highcharts.js"></script>
+  <script src="/static/vendor/highcharts/highcharts-more.js"></script>
+  <script src="/static/vendor/highcharts/modules/solid-gauge.js"></script>
+  <script src="/static/vendor/highcharts/modules/exporting.js"></script>
+  <link rel="stylesheet" href="/static/css/app.css?v={{ app_version }}" />
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/">
+        <span class="brand-badge">GRID</span>
+        <span class="brand-text">
+          <span class="brand-name">Krafton Grid</span>
+          <span class="brand-sub">AIDC · 100 MW</span>
+        </span>
+      </a>
+
+      <nav class="nav" aria-label="Primary">
+        {% for item in nav %}
+          {% if item.children %}
+          <div class="nav-group is-open{% if item.id in nav_open %} has-active{% endif %}" data-nav-group="{{ item.id }}">
+            <div class="nav-group-toggle" role="button" tabindex="0" aria-expanded="true">
+              <span class="nav-icon" aria-hidden="true">{% set name = item.id %}{% include "partials/nav_icon.html" %}</span>
+              <span class="nav-label">{{ item.label }}</span>
+              <span class="nav-chevron" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg>
+              </span>
+            </div>
+            <div class="nav-sub">
+              {% for child in item.children %}
+              <a class="nav-link nav-sublink{% if active == child.id %} is-active{% endif %}" href="{{ child.href }}">{{ child.label }}</a>
+              {% endfor %}
+            </div>
+          </div>
+          {% else %}
+          <a class="nav-link nav-top{% if active == item.id %} is-active{% endif %}" href="{{ item.href }}">
+            <span class="nav-icon" aria-hidden="true">{% set name = item.id %}{% include "partials/nav_icon.html" %}</span>
+            <span class="nav-label">{{ item.label }}</span>
+          </a>
+          {% endif %}
+        {% endfor %}
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="pulse-dot" id="live-dot"></div>
+        <div style="flex:1;min-width:0">
+          <div class="muted">Live sim</div>
+          <div class="mono" id="live-mode">{{ live.mode }}</div>
+        </div>
+        <a class="btn btn-sm btn-ghost" href="/logout" style="flex-shrink:0">Logout</a>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <div>
+          <h1 class="page-title">{% block page_title %}Main{% endblock %}</h1>
+          <p class="page-sub">{% block page_sub %}Facility + IT cluster telemetry{% endblock %}</p>
+        </div>
+        <div class="kpi-strip" id="top-kpis">
+          <div class="kpi"><span class="kpi-l">IT Load</span><span class="kpi-v" data-k="it_load_mw">{{ '%.1f'|format(live.it_load_mw) }}</span><span class="kpi-u">MW</span></div>
+          <div class="kpi"><span class="kpi-l">PUE</span><span class="kpi-v" data-k="pue">{{ '%.3f'|format(live.pue) }}</span><span class="kpi-u">ratio</span></div>
+          <div class="kpi"><span class="kpi-l">Util</span><span class="kpi-v" data-k="utilization_pct">{{ '%.1f'|format(live.utilization_pct) }}</span><span class="kpi-u">%</span></div>
+          <div class="kpi"><span class="kpi-l">Alerts</span><span class="kpi-v" data-k="active_alerts">{{ live.active_alerts }}</span><span class="kpi-u">open</span></div>
+        </div>
+      </header>
+
+      <main class="content">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+
+  <script src="/static/js/charts.js"></script>
+  <script src="/static/js/app.js"></script>
+  <script>
+  document.querySelectorAll(".nav-group-toggle").forEach((btn) => {
+    const toggle = () => {
+      const group = btn.closest(".nav-group");
+      const open = group.classList.toggle("is-open");
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+    };
+    btn.addEventListener("click", toggle);
+    btn.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+    });
+  });
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}DC Cost · {{ site_name }}{% endblock %}
+{% block page_title %}Cost — DC{% endblock %}
+{% block page_sub %}전기요금 · 세금 · 관리비 · 인건비 · 월별 트렌드{% endblock %}
+{% block content %}
+<div class="grid grid-4">
+  <div class="panel">
+    <h3>Live total</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Now</span><span class="stat-value" id="dc-total">₩{{ '{:,}'.format(cost_live.dc.live_total) }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Baseline</span><span class="stat-value">₩{{ '{:,}'.format(cost.total) }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>{{ trends.summary.latest_month }}</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">DC month</span><span class="stat-value">₩{{ '{:,}'.format(trends.summary.latest_dc) }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">12m YTD</span><span class="stat-value">₩{{ '{:,}'.format(trends.summary.ytd_dc) }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Share of grand</h3>
+    {% set share = (trends.summary.latest_dc / trends.summary.latest_grand * 100) if trends.summary.latest_grand else 0 %}
+    <div class="stat-row" style="border:0"><span class="stat-label">Latest</span><span class="stat-value">{{ '%.1f'|format(share) }}%</span></div>
+    <div class="link-hint"><a href="/cost">Summary →</a></div>
+  </div>
+  <div class="panel">
+    <h3>Lines</h3>
+    {% for ln in cost.lines %}
+    <div class="stat-row" style="border:0;padding:0.2rem 0"><span class="stat-label">{{ ln.label.split(' ')[0] }}</span><span class="stat-value" id="dc-{{ ln.id }}">₩{{ '{:,}'.format(cost_live.dc.live[ln.id]) }}</span></div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="grid grid-3" style="margin-top:1rem">
+  <div class="panel span-2">
+    <h2>Monthly trend by line</h2>
+    <p class="hint">전기 · 세금 · 관리 · 인건비 stacked</p>
+    <div id="chart-dc-trend" class="chart chart-lg"></div>
+  </div>
+  <div class="panel">
+    <h2>Mix (live)</h2>
+    <div id="chart-dc-cost" class="chart chart-sm"></div>
+  </div>
+</div>
+
+<div class="grid grid-3" style="margin-top:1rem">
+  <div class="panel span-2">
+    <h2>DC total monthly</h2>
+    <div id="chart-dc-total" class="chart chart-lg"></div>
+  </div>
+  <div class="panel">
+    <h2>Line items</h2>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Category</th><th>Baseline</th><th>Live</th></tr></thead>
+        <tbody>
+          {% for ln in cost.lines %}
+          <tr>
+            <td><strong>{{ ln.label }}</strong><div class="muted">{{ ln.note }}</div></td>
+            <td>₩{{ '{:,}'.format(ln.amount) }}</td>
+            <td class="mono" id="dc-tbl-{{ ln.id }}">₩{{ '{:,}'.format(cost_live.dc.live[ln.id]) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-1" style="margin-top:1rem">
+  <div class="panel">
+    <h2>Monthly detail</h2>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Month</th>
+            {% for ln in cost.lines %}<th>{{ ln.label.split('(')[0].strip() }}</th>{% endfor %}
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in trends.months %}
+          {% set i = loop.index0 %}
+          <tr>
+            <td class="mono">{{ m }}</td>
+            {% for ln in cost.lines %}
+            <td>₩{{ '{:,}'.format(trends.dc.by_line[ln.id][i]) }}</td>
+            {% endfor %}
+            <td><strong>₩{{ '{:,}'.format(trends.dc.total[i]) }}</strong></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const lines = {{ cost.lines | tojson }};
+  const live = {{ cost_live.dc.live | tojson }};
+  const trends = {{ trends | tojson }};
+  DCIMCharts.pieChart("chart-dc-cost", lines.map((l) => ({ name: l.label, y: live[l.id] || l.amount })));
+  DCIMCharts.columnSeriesChart(
+    "chart-dc-trend",
+    trends.months,
+    lines.map((l) => ({ name: l.label, data: trends.dc.by_line[l.id] })),
+    { stacked: true, yTitle: "KRW" }
+  );
+  DCIMCharts.columnSeriesChart(
+    "chart-dc-total",
+    trends.months,
+    [{ name: "DC total", data: trends.dc.total }],
+    { yTitle: "KRW" }
+  );
+  const won = (n) => "₩" + Number(n).toLocaleString("ko-KR");
+  DCIM.onLive.push((snap) => {
+    if (!snap.cost) return;
+    document.getElementById("dc-total").textContent = won(snap.cost.dc.live_total);
+    Object.entries(snap.cost.dc.live).forEach(([id, v]) => {
+      const a = document.getElementById("dc-" + id);
+      const b = document.getElementById("dc-tbl-" + id);
+      if (a) a.textContent = won(v);
+      if (b) b.textContent = won(v);
+    });
+  });
+});
+</script>
+{% endblock %}

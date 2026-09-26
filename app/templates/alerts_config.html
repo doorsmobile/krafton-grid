@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Alert Config · {{ site_name }}{% endblock %}
+{% block page_title %}Alert Config{% endblock %}
+{% block page_sub %}Per-alert routing — in-app · Slack webhook · Slack OAuth · generic webhook{% endblock %}
+{% block content %}
+<div class="grid grid-1">
+  {% for cat in config.categories %}
+  <div class="panel">
+    <div class="panel-head">
+      <h2>{{ cat.name }} <span class="muted" style="font-weight:500">({{ cat.count }})</span></h2>
+    </div>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Alert</th>
+            <th>Severity</th>
+            <th>In-app</th>
+            <th>Slack webhook</th>
+            <th>Slack OAuth</th>
+            <th>Webhook</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in cat.alerts %}
+          <tr data-alert="{{ a.id }}">
+            <td>
+              <strong>{{ a.title }}</strong>
+              <div class="muted">{{ a.description }}</div>
+              <div class="mono muted" style="font-size:0.75rem">{{ a.id }}</div>
+            </td>
+            <td><span class="badge {{ 'crit' if a.severity=='critical' else ('warn' if a.severity=='warning' else 'info') }}">{{ a.severity }}</span></td>
+            <td><input type="checkbox" class="route" data-ch="in_app" {% if a.routing.in_app %}checked{% endif %} disabled title="Always on" /></td>
+            <td><input type="checkbox" class="route" data-ch="slack_webhook" {% if a.routing.slack_webhook %}checked{% endif %} /></td>
+            <td><input type="checkbox" class="route" data-ch="slack_oauth" {% if a.routing.slack_oauth %}checked{% endif %} /></td>
+            <td><input type="checkbox" class="route" data-ch="generic_webhook" {% if a.routing.generic_webhook %}checked{% endif %} /></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+  <p class="hint">API: <code>GET /api/alerts/config</code> · <code>PUT /api/alerts/config/{id}</code> with <code>{"slack_webhook": true}</code></p>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll("tr[data-alert]").forEach((tr) => {
+  tr.querySelectorAll("input.route:not([disabled])").forEach((cb) => {
+    cb.addEventListener("change", async () => {
+      const routing = {};
+      tr.querySelectorAll("input.route").forEach((el) => {
+        routing[el.dataset.ch] = el.checked;
+      });
+      await fetch(`/api/alerts/config/${tr.dataset.alert}`, {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({routing}),
+      });
+    });
+  });
+});
+</script>
+{% endblock %}

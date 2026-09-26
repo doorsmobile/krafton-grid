@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Cloud · {{ site_name }}{% endblock %}
+{% block page_title %}Cloud — AWS · GCP · NHN{% endblock %}
+{% block page_sub %}GPUaaS &amp; storage — open a row for detail page{% endblock %}
+{% block content %}
+<div class="grid grid-4">
+  <div class="panel">
+    <h3>AWS GPUaaS</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Util</span><span class="stat-value" id="aws-util">{{ cloud_live.aws_gpu_util_pct }}%</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Running</span><span class="stat-value" id="aws-n">{{ cloud_live.aws_running_instances }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>GCP Storage</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Used</span><span class="stat-value" id="gcp-used">{{ cloud_live.gcp_storage_used_tb }} TB</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Ops/s</span><span class="stat-value" id="gcp-ops">{{ cloud_live.gcp_ops_per_s }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>NHN GPUaaS</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Util</span><span class="stat-value" id="nhn-util">{{ cloud_live.nhn_gpu_util_pct }}%</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Active</span><span class="stat-value" id="nhn-n">{{ cloud_live.nhn_active_instances }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Inventory</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">AWS GPUs</span><span class="stat-value">{{ aws.summary.gpus_total }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">NHN GPUs</span><span class="stat-value">{{ nhn.summary.gpus_total }}</span></div>
+  </div>
+</div>
+
+<div class="grid grid-2" style="margin-top:1rem">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>AWS top talkers</h2>
+      <a class="btn btn-ghost btn-sm" href="/cloud/aws">Full list</a>
+    </div>
+    <p class="hint">Hottest EC2 / Capacity Block instances — click for detail.</p>
+    <div class="table-wrap">
+      <table class="data compact">
+        <thead><tr><th>#</th><th>Instance</th><th>Type</th><th>GPUs</th><th>Util</th><th>State</th></tr></thead>
+        <tbody>
+          {% for t in aws_talkers %}
+          <tr class="click-row" onclick="location.href='/cloud/aws/instance/{{ t.id }}'">
+            <td>{{ t.rank }}</td>
+            <td class="mono"><a href="/cloud/aws/instance/{{ t.id }}">{{ t.id }}</a></td>
+            <td class="mono">{{ t.instance_type }}</td>
+            <td>{{ t.gpus }}</td>
+            <td>
+              <div class="util-bar"><span style="width:{{ [t.util_pct, 100]|min }}%"></span></div>
+              {{ t.util_pct }}%
+            </td>
+            <td><span class="badge {{ 'ok' if t.state=='running' else 'warn' }}">{{ t.state }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>NHN top talkers</h2>
+      <a class="btn btn-ghost btn-sm" href="/cloud/nhn">Full list</a>
+    </div>
+    <p class="hint">Hottest GPUaaS instances — click for detail.</p>
+    <div class="table-wrap">
+      <table class="data compact">
+        <thead><tr><th>#</th><th>Instance</th><th>Flavor</th><th>GPUs</th><th>Util</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for t in nhn_talkers %}
+          <tr class="click-row" onclick="location.href='/cloud/nhn/instance/{{ t.id }}'">
+            <td>{{ t.rank }}</td>
+            <td class="mono"><a href="/cloud/nhn/instance/{{ t.id }}">{{ t.id }}</a></td>
+            <td class="mono">{{ t.flavor }}</td>
+            <td>{{ t.gpus }}</td>
+            <td>{{ t.util_pct }}%</td>
+            <td><span class="badge {{ 'ok' if t.status=='ACTIVE' else 'warn' }}">{{ t.status }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-2" style="margin-top:1rem">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>GCP buckets</h2>
+      <a class="btn btn-ghost btn-sm" href="/cloud/gcp">Full list</a>
+    </div>
+    <p class="hint">Top by ops/s — click for bucket detail.</p>
+    <div class="table-wrap">
+      <table class="data compact">
+        <thead><tr><th>#</th><th>Bucket</th><th>Class</th><th>Used</th><th>Ops/s</th><th>Thr</th></tr></thead>
+        <tbody>
+          {% for t in gcp_talkers %}
+          <tr class="click-row" onclick="location.href='/cloud/gcp/bucket/{{ t.id }}'">
+            <td>{{ t.rank }}</td>
+            <td class="mono"><a href="/cloud/gcp/bucket/{{ t.id }}">{{ t.id }}</a></td>
+            <td>{{ t.class }}</td>
+            <td class="mono">{{ t.used_tb }} TB</td>
+            <td class="mono">{{ t.ops_per_s }}</td>
+            <td class="mono">{{ t.throughput_mbs }} MB/s</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Provider mix</h2>
+    <div id="chart-cloud-mix" class="chart chart-lg"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  Highcharts.chart("chart-cloud-mix", {
+    chart: { type: "bar" },
+    xAxis: { categories: ["AWS util", "NHN util", "GCP ops/1k"] },
+    yAxis: { title: { text: null } },
+    legend: { enabled: false },
+    series: [{
+      name: "Live",
+      data: [
+        {{ cloud_live.aws_gpu_util_pct }},
+        {{ cloud_live.nhn_gpu_util_pct }},
+        {{ (cloud_live.gcp_ops_per_s / 1000)|round(1) }},
+      ],
+      color: DCIMCharts.palette.teal,
+    }],
+  });
+  DCIM.onLive.push((live) => {
+    document.getElementById("aws-util").textContent = live.aws_gpu_util_pct + "%";
+    document.getElementById("aws-n").textContent = live.aws_running_instances;
+    document.getElementById("gcp-used").textContent = live.gcp_storage_used_tb + " TB";
+    document.getElementById("gcp-ops").textContent = live.gcp_ops_per_s;
+    document.getElementById("nhn-util").textContent = live.nhn_gpu_util_pct + "%";
+    document.getElementById("nhn-n").textContent = live.nhn_active_instances;
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Logs · Observability · {{ site_name }}{% endblock %}
+{% block page_title %}Logs{% endblock %}
+{% block page_sub %}LogQL-style selectors over facility, fabric, and alert streams{% endblock %}
+{% block content %}
+<div class="grid grid-2">
+  <div class="panel span-2">
+    <h2>LogQL query</h2>
+    <p class="hint">Examples: <code>{job="krafton-grid"}</code> · <code>{namespace="gpu"}</code> · <code>{namespace="alerts"}</code></p>
+    <div class="btn-row" style="align-items:stretch">
+      <input id="logql-input" class="mono" style="flex:1;min-width:12rem;padding:0.55rem 0.75rem;border-radius:8px;border:1px solid var(--line);background:var(--graphite);color:var(--ink)" value='{job="krafton-grid"}' />
+      <button class="btn primary" id="logql-run" type="button">Run</button>
+    </div>
+    <div class="table-wrap" style="margin-top:0.85rem">
+      <table class="data" id="log-table">
+        <thead><tr><th>Time</th><th>NS</th><th>Level</th><th>Line</th></tr></thead>
+        <tbody>
+          {% for line in sample.result %}
+          <tr>
+            <td class="mono">{{ line.ts }}</td>
+            <td class="mono">{{ line.labels.namespace }}</td>
+            <td><span class="badge {{ 'crit' if line.level=='critical' else ('warn' if line.level=='warning' else 'info') }}">{{ line.level }}</span></td>
+            <td>{{ line.line }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="hint">API: <code>POST /api/observability/logs/query</code></p>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const input = document.getElementById("logql-input");
+const tbody = document.querySelector("#log-table tbody");
+async function runLog() {
+  const query = input.value.trim();
+  const res = await fetch("/api/observability/logs/query", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({query, limit: 40}),
+  });
+  const data = await res.json();
+  tbody.innerHTML = (data.result || []).map((line) => {
+    const lvl = line.level || "info";
+    const cls = lvl === "critical" ? "crit" : lvl === "warning" ? "warn" : "info";
+    return `<tr><td class="mono">${line.ts || ""}</td><td class="mono">${(line.labels||{}).namespace||""}</td><td><span class="badge ${cls}">${lvl}</span></td><td>${line.line||""}</td></tr>`;
+  }).join("");
+}
+document.getElementById("logql-run").addEventListener("click", runLog);
+input.addEventListener("keydown", (e) => { if (e.key === "Enter") runLog(); });
+</script>
+{% endblock %}

@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}{{ node.id }} · Kubernetes{% endblock %}
+{% block page_title %}{{ node.id }} — {{ node.hostname }}{% endblock %}
+{% block page_sub %}{{ node.model }} · {{ node.mgmt_ip }} · {{ node.rack_id }} · workloads &amp; resource metrics{% endblock %}
+{% block content %}
+<p class="hint"><a href="/kubernetes">← Back to Kubernetes</a></p>
+
+<div class="grid grid-4">
+  <div class="panel">
+    <h3>Identity</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Role</span><span class="stat-value">{{ node.role }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Vendor</span><span class="stat-value">{{ node.vendor }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">K8s</span><span class="stat-value mono">{{ node.k8s_version }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Hardware</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">CPU</span><span class="stat-value">{{ node.cpu_cores }}c / {{ node.cpu_sockets }}s</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">RAM</span><span class="stat-value">{{ node.ram_tb }} TB</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Status</span><span class="stat-value"><span class="badge ok">{{ node.status }}</span></span></div>
+  </div>
+  <div class="panel">
+    <h3>Live</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">CPU</span><span class="stat-value">{{ metrics.cpu_util_pct }}%</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Mem</span><span class="stat-value">{{ metrics.mem_util_pct }}%</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Pods</span><span class="stat-value">{{ metrics.pod_count }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>I/O</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Net</span><span class="stat-value mono">{{ metrics.net_mbs }} MB/s</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Disk IOPS</span><span class="stat-value mono">{{ metrics.disk_iops }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Score</span><span class="stat-value">{{ metrics.score }}</span></div>
+  </div>
+</div>
+
+<div class="grid grid-3" style="margin-top:1rem">
+  <div class="panel span-2">
+    <h2>Workloads on this node</h2>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Pod</th>
+            <th>Namespace</th>
+            <th>CPU (m)</th>
+            <th>Mem (Mi)</th>
+            <th>Restarts</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in pods %}
+          <tr>
+            <td class="mono">{{ p.name }}</td>
+            <td>{{ p.namespace }}</td>
+            <td class="mono">{{ p.cpu_m }}</td>
+            <td class="mono">{{ p.mem_mi }}</td>
+            <td class="mono {% if p.restarts %}warn-text{% endif %}">{{ p.restarts }}</td>
+            <td><span class="badge {{ 'ok' if p.status=='Running' else 'warn' }}">{{ p.status }}</span></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="muted">No sample pods.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>1h CPU / mem / pods</h2>
+    <div id="chart-node" class="chart chart-lg"></div>
+    <div id="chart-net" class="chart" style="height:180px;margin-top:0.75rem"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const series = {{ series_json|safe }};
+  Highcharts.chart("chart-node", {
+    chart: { type: "areaspline", zoomType: "x" },
+    xAxis: { type: "datetime" },
+    yAxis: [
+      { title: { text: "%" }, max: 100 },
+      { title: { text: "pods" }, opposite: true },
+    ],
+    series: [
+      { name: "CPU %", data: series.map(p => [Date.parse(p.t), p.cpu]), color: DCIMCharts.palette.teal, yAxis: 0 },
+      { name: "Mem %", data: series.map(p => [Date.parse(p.t), p.mem]), color: DCIMCharts.palette.steel, yAxis: 0 },
+      { name: "Pods", data: series.map(p => [Date.parse(p.t), p.pods]), color: DCIMCharts.palette.amber, yAxis: 1 },
+    ],
+    plotOptions: { areaspline: { fillOpacity: 0.1, marker: { enabled: false }, lineWidth: 2 } },
+  });
+  Highcharts.chart("chart-net", {
+    chart: { type: "spline" },
+    xAxis: { type: "datetime" },
+    yAxis: { title: { text: "MB/s" } },
+    series: [{ name: "Net", data: series.map(p => [Date.parse(p.t), p.net]), color: DCIMCharts.palette.teal }],
+    plotOptions: { spline: { marker: { enabled: false }, lineWidth: 2 } },
+  });
+});
+</script>
+{% endblock %}

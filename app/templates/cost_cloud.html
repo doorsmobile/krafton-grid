@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Cloud Cost · {{ site_name }}{% endblock %}
+{% block page_title %}Cost — Cloud{% endblock %}
+{% block page_sub %}AWS · GCP · NHN · 월별 트렌드{% endblock %}
+{% block content %}
+<div class="grid grid-4">
+  <div class="panel">
+    <h3>Live total</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Now</span><span class="stat-value" id="cl-total">₩{{ '{:,}'.format(cost_live.cloud.live_total) }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Baseline</span><span class="stat-value">₩{{ '{:,}'.format(cost.total) }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>{{ trends.summary.latest_month }}</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Cloud month</span><span class="stat-value">₩{{ '{:,}'.format(trends.summary.latest_cloud) }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">12m YTD</span><span class="stat-value">₩{{ '{:,}'.format(trends.summary.ytd_cloud) }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Grand (DC+Cloud)</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Live</span><span class="stat-value" id="grand">₩{{ '{:,}'.format(cost_live.grand_total) }}</span></div>
+    <div class="link-hint"><a href="/cost">Summary →</a></div>
+  </div>
+  <div class="panel">
+    <h3>Providers</h3>
+    {% for ln in cost.lines %}
+    <div class="stat-row" style="border:0;padding:0.2rem 0"><span class="stat-label">{{ ln.id|upper }}</span><span class="stat-value" id="cl-{{ ln.id }}">₩{{ '{:,}'.format(cost_live.cloud.live[ln.id]) }}</span></div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="grid grid-3" style="margin-top:1rem">
+  <div class="panel span-2">
+    <h2>Monthly trend by provider</h2>
+    <p class="hint">AWS · GCP · NHN stacked</p>
+    <div id="chart-cloud-trend" class="chart chart-lg"></div>
+  </div>
+  <div class="panel">
+    <h2>Mix (live)</h2>
+    <div id="chart-cloud-cost" class="chart chart-sm"></div>
+  </div>
+</div>
+
+<div class="grid grid-3" style="margin-top:1rem">
+  <div class="panel span-2">
+    <h2>Cloud total monthly</h2>
+    <div id="chart-cloud-total" class="chart chart-lg"></div>
+  </div>
+  <div class="panel">
+    <h2>Providers</h2>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Provider</th><th>Baseline</th><th>Live</th><th></th></tr></thead>
+        <tbody>
+          {% for ln in cost.lines %}
+          <tr>
+            <td><strong>{{ ln.label }}</strong><div class="muted">{{ ln.note }}</div></td>
+            <td>₩{{ '{:,}'.format(ln.amount) }}</td>
+            <td class="mono" id="cl-tbl-{{ ln.id }}">₩{{ '{:,}'.format(cost_live.cloud.live[ln.id]) }}</td>
+            <td><a href="/cloud/{{ ln.id }}">Open →</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-1" style="margin-top:1rem">
+  <div class="panel">
+    <h2>Monthly detail</h2>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Month</th>
+            {% for ln in cost.lines %}<th>{{ ln.id|upper }}</th>{% endfor %}
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in trends.months %}
+          {% set i = loop.index0 %}
+          <tr>
+            <td class="mono">{{ m }}</td>
+            {% for ln in cost.lines %}
+            <td>₩{{ '{:,}'.format(trends.cloud.by_line[ln.id][i]) }}</td>
+            {% endfor %}
+            <td><strong>₩{{ '{:,}'.format(trends.cloud.total[i]) }}</strong></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const lines = {{ cost.lines | tojson }};
+  const live = {{ cost_live.cloud.live | tojson }};
+  const trends = {{ trends | tojson }};
+  DCIMCharts.pieChart("chart-cloud-cost", lines.map((l) => ({ name: l.label, y: live[l.id] || l.amount })));
+  DCIMCharts.columnSeriesChart(
+    "chart-cloud-trend",
+    trends.months,
+    lines.map((l) => ({ name: l.label, data: trends.cloud.by_line[l.id] })),
+    { stacked: true, yTitle: "KRW" }
+  );
+  DCIMCharts.columnSeriesChart(
+    "chart-cloud-total",
+    trends.months,
+    [{ name: "Cloud total", data: trends.cloud.total, color: DCIMCharts.palette.steel }],
+    { yTitle: "KRW" }
+  );
+  const won = (n) => "₩" + Number(n).toLocaleString("ko-KR");
+  DCIM.onLive.push((snap) => {
+    if (!snap.cost) return;
+    document.getElementById("cl-total").textContent = won(snap.cost.cloud.live_total);
+    document.getElementById("grand").textContent = won(snap.cost.grand_total);
+    Object.entries(snap.cost.cloud.live).forEach(([id, v]) => {
+      const a = document.getElementById("cl-" + id);
+      const b = document.getElementById("cl-tbl-" + id);
+      if (a) a.textContent = won(v);
+      if (b) b.textContent = won(v);
+    });
+  });
+});
+</script>
+{% endblock %}

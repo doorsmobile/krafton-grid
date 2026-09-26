@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Simulation · {{ site_name }}{% endblock %}
+{% block page_title %}Simulation{% endblock %}
+{% block page_sub %}Scenario controls, Redis dump, and exportable DCIM telemetry bundle{% endblock %}
+{% block content %}
+<div class="grid grid-2">
+  <div class="panel">
+    <h2>Scenario Controls</h2>
+    <p class="hint">Drive the live engine modes stored in Redis meta</p>
+    <div class="field">
+      <label>Simulation mode</label>
+      <select id="sim-mode">
+        <option value="normal">Normal operations</option>
+        <option value="stress">Stress / GPU burst</option>
+        <option value="maintenance">Maintenance derate</option>
+        <option value="failover">Failover / BESS assist</option>
+      </select>
+    </div>
+    <div class="btn-row">
+      <button class="btn primary" type="button" id="btn-mode">Apply Mode</button>
+      <button class="btn" type="button" id="btn-tick">Force Tick</button>
+    </div>
+    <hr style="border:0;border-top:1px solid var(--line);margin:1.1rem 0" />
+    <div class="field">
+      <label>Inject alert severity</label>
+      <select id="alert-sev">
+        <option value="info">info</option>
+        <option value="warning" selected>warning</option>
+        <option value="critical">critical</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Message</label>
+      <input id="alert-msg" value="Operator drill: simulated CDU pressure excursion" />
+    </div>
+    <button class="btn danger" type="button" id="btn-alert">Inject Alert</button>
+  </div>
+
+  <div class="panel">
+    <h2>Live Snapshot</h2>
+    <p class="hint">Refreshing from <code>/api/live</code></p>
+    <pre class="code-block" id="live-json"></pre>
+  </div>
+
+  <div class="panel span-2">
+    <h2>Redis Simulation Bundle</h2>
+    <p class="hint">Site topology, halls, vendors, power/cooling chains, alerts, history sample</p>
+    <div class="btn-row" style="margin-bottom:0.85rem">
+      <a class="btn primary" href="/api/sim/export.json">Download JSON Export</a>
+      <a class="btn" href="/api/sim/dump" target="_blank">Open /api/sim/dump</a>
+      <a class="btn" href="/api/history?limit=30" target="_blank">History sample</a>
+    </div>
+    <pre class="code-block" id="bundle-json">{{ bundle | tojson(indent=2) }}</pre>
+  </div>
+
+  <div class="panel span-2">
+    <h2>Key Redis Keys</h2>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Key</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">dcim:aidc100:live</td><td>Current campus snapshot</td></tr>
+          <tr><td class="mono">dcim:aidc100:history</td><td>Rolling tick history</td></tr>
+          <tr><td class="mono">dcim:aidc100:series:*</td><td>Per-metric Highcharts series</td></tr>
+          <tr><td class="mono">dcim:aidc100:vendors</td><td>Vendor &amp; API catalog</td></tr>
+          <tr><td class="mono">dcim:aidc100:alerts</td><td>Alarm list</td></tr>
+          <tr><td class="mono">dcim:aidc100:halls</td><td>Hall topology</td></tr>
+          <tr><td class="mono">dcim:aidc100:meta</td><td>Mode / engine metadata</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const liveOut = document.getElementById("live-json");
+const modeSel = document.getElementById("sim-mode");
+
+DCIM.onLive.push((live) => {
+  liveOut.textContent = JSON.stringify(live, null, 2);
+  if (document.activeElement !== modeSel) modeSel.value = live.mode;
+});
+
+document.getElementById("btn-mode").addEventListener("click", async () => {
+  await fetch("/api/sim/mode", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode: modeSel.value }),
+  });
+  await DCIM.refresh();
+});
+
+document.getElementById("btn-tick").addEventListener("click", async () => {
+  await fetch("/api/sim/mode", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode: modeSel.value }),
+  });
+  await DCIM.refresh();
+});
+
+document.getElementById("btn-alert").addEventListener("click", async () => {
+  await fetch("/api/sim/alert", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      severity: document.getElementById("alert-sev").value,
+      message: document.getElementById("alert-msg").value,
+    }),
+  });
+});
+</script>
+{% endblock %}

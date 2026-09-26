@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}{{ stage.id }} · Power{% endblock %}
+{% block page_title %}{{ stage.id }} — {{ stage.stage }}{% endblock %}
+{% block page_sub %}{{ stage.vendor }} · {{ stage.rating }} · electrical path detail{% endblock %}
+{% block content %}
+<p class="hint"><a href="/facility">← Facility</a> · <a href="/power">Power chain</a></p>
+
+<div class="grid grid-4">
+  <div class="panel">
+    <h3>Identity</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Stage</span><span class="stat-value" style="font-size:0.9rem">{{ stage.stage }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Vendor</span><span class="stat-value" style="font-size:0.85rem">{{ stage.vendor }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Rating</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Design</span><span class="stat-value" style="font-size:0.9rem">{{ stage.rating }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Status</span><span class="stat-value"><span class="badge {{ 'ok' if stage.status=='online' else 'warn' }}">{{ stage.status }}</span></span></div>
+  </div>
+  <div class="panel">
+    <h3>Live</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Load</span><span class="stat-value">{{ stage.load_pct }}%</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Power</span><span class="stat-value mono">{{ stage.power_kw }} kW</span></div>
+  </div>
+  <div class="panel">
+    <h3>Score</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Hotness</span><span class="stat-value">{{ stage.score }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Ring</span><span class="stat-value">60 min</span></div>
+  </div>
+</div>
+
+<div class="grid grid-3" style="margin-top:1rem">
+  <div class="panel span-2">
+    <h2>Power path context</h2>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>ID</th><th>Stage</th><th>Vendor</th><th>Load</th><th>kW</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for s in chain %}
+          <tr class="click-row {% if s.id==stage.id %}is-selected{% endif %}" onclick="location.href='/facility/power/stage/{{ s.id }}'">
+            <td class="mono"><a href="/facility/power/stage/{{ s.id }}">{{ s.id }}</a></td>
+            <td>{{ s.stage }}</td>
+            <td class="muted">{{ s.vendor }}</td>
+            <td>{{ s.load_pct }}%</td>
+            <td class="mono">{{ s.power_kw }}</td>
+            <td><span class="badge {{ 'ok' if s.status=='online' else 'warn' }}">{{ s.status }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>1h load / power</h2>
+    <div id="chart-load" class="chart chart-lg"></div>
+    <div id="chart-kw" class="chart" style="height:180px;margin-top:0.75rem"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const series = {{ series_json|safe }};
+  Highcharts.chart("chart-load", {
+    chart: { type: "areaspline", zoomType: "x" },
+    xAxis: { type: "datetime" },
+    yAxis: { title: { text: "%" }, max: 100 },
+    series: [{ name: "Load %", data: series.load.map(p => [Date.parse(p.t), p.v]), color: DCIMCharts.palette.teal }],
+    plotOptions: { areaspline: { fillOpacity: 0.12, marker: { enabled: false }, lineWidth: 2 } },
+  });
+  Highcharts.chart("chart-kw", {
+    chart: { type: "spline" },
+    xAxis: { type: "datetime" },
+    yAxis: { title: { text: "kW" } },
+    series: [{ name: "Power kW", data: series.power.map(p => [Date.parse(p.t), p.v]), color: DCIMCharts.palette.amber }],
+    plotOptions: { spline: { marker: { enabled: false }, lineWidth: 2 } },
+  });
+});
+</script>
+{% endblock %}

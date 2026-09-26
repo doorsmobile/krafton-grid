@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}{{ device.id }} · Network{% endblock %}
+{% block page_title %}{{ device.id }} — {{ device.model }}{% endblock %}
+{% block page_sub %}{{ device.hostname }} · {{ device.mgmt_ip }} · all interfaces (bps / errors / discards){% endblock %}
+{% block content %}
+<div class="net-subnav">
+  <a href="/network">Overview</a>
+  <a href="/network/uplinks">Uplink Traffic</a>
+  <a href="/network/toptalkers">Top Talkers</a>
+  <a class="is-active" href="/network/inventory">Inventory</a>
+</div>
+
+<p class="hint"><a href="/network">← Back to Network</a> · <a href="/network/inventory">Inventory</a></p>
+
+<div class="grid grid-4">
+  <div class="panel">
+    <h3>Identity</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Role</span><span class="stat-value">{{ device.role }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Fabric</span><span class="stat-value">{{ device.fabric }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">OS</span><span class="stat-value mono" style="font-size:0.85rem">{{ device.os }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Location</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Rack</span><span class="stat-value mono">{{ device.rack_id }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Site</span><span class="stat-value" style="font-size:0.9rem">{{ device.location }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Serial</span><span class="stat-value mono" style="font-size:0.85rem">{{ device.serial }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Status</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Oper</span><span class="stat-value"><span class="badge {{ 'ok' if device.status=='online' else 'warn' }}">{{ device.status }}</span></span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Ports</span><span class="stat-value">{{ device.ports }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Tracked ifaces</span><span class="stat-value">{{ interfaces|length }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Collector</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Last sample</span><span class="stat-value mono" style="font-size:0.75rem">{{ collector.last_sample_ts or '—' }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Ring</span><span class="stat-value">60 min</span></div>
+  </div>
+</div>
+
+<div class="grid grid-3" style="margin-top:1rem">
+  <div class="panel span-2">
+    <h2>Interfaces — bandwidth, bps, errors, discards</h2>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Interface</th>
+            <th>Role</th>
+            <th>Bandwidth</th>
+            <th>In bps</th>
+            <th>Out bps</th>
+            <th>Util</th>
+            <th>Errors</th>
+            <th>Discards</th>
+            <th>Oper</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for i in interfaces %}
+          <tr data-iface="{{ i.name }}" class="iface-row">
+            <td class="mono">{{ i.name }}</td>
+            <td>{{ i.role }}{% if i.uplink %} <span class="badge info">uplink</span>{% endif %}</td>
+            <td class="mono">{{ i.speed_label }}</td>
+            <td class="mono">{{ i.in_bps_h }}</td>
+            <td class="mono">{{ i.out_bps_h }}</td>
+            <td>
+              <div class="util-bar"><span style="width:{{ [i.util_pct, 100]|min }}%"></span></div>
+              {{ '%.1f'|format(i.util_pct) }}%
+            </td>
+            <td class="mono {% if i.errors %}warn-text{% endif %}">{{ i.errors }}</td>
+            <td class="mono {% if i.discards %}warn-text{% endif %}">{{ i.discards }}</td>
+            <td><span class="badge {{ 'ok' if i.oper=='up' else 'idle' }}">{{ i.oper }}</span></td>
+            <td class="muted">{{ i.description }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>1h traffic — <span id="chart-iface-name" class="mono">{{ interfaces[0].name if interfaces else '—' }}</span></h2>
+    <p class="hint">Select a row to plot in/out bps for the last hour (Redis minute ring).</p>
+    <div id="chart-iface" class="chart chart-lg"></div>
+    <div id="chart-err" class="chart" style="height:180px;margin-top:0.75rem"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const seriesMap = {{ series_json|safe }};
+  const names = Object.keys(seriesMap);
+  let current = names[0];
+  let trafficChart = null;
+  let errChart = null;
+
+  function render(name) {
+    current = name;
+    document.getElementById("chart-iface-name").textContent = name;
+    const pts = seriesMap[name] || [];
+    const inData = pts.map(p => [Date.parse(p.t), p.in / 1e9]);
+    const outData = pts.map(p => [Date.parse(p.t), p.out / 1e9]);
+    const errData = pts.map(p => [Date.parse(p.t), p.e]);
+    const discData = pts.map(p => [Date.parse(p.t), p.d]);
+
+    if (trafficChart) trafficChart.destroy();
+    trafficChart = Highcharts.chart("chart-iface", {
+      chart: { type: "areaspline", zoomType: "x" },
+      xAxis: { type: "datetime" },
+      yAxis: { title: { text: "Gbps" } },
+      series: [
+        { name: "In", data: inData, color: DCIMCharts.palette.teal },
+        { name: "Out", data: outData, color: DCIMCharts.palette.steel },
+      ],
+      plotOptions: { areaspline: { fillOpacity: 0.15, marker: { enabled: false }, lineWidth: 2 } },
+    });
+
+    if (errChart) errChart.destroy();
+    errChart = Highcharts.chart("chart-err", {
+      chart: { type: "column" },
+      xAxis: { type: "datetime" },
+      yAxis: { title: { text: "count / min" }, allowDecimals: false },
+      series: [
+        { name: "Errors", data: errData, color: DCIMCharts.palette.red },
+        { name: "Discards", data: discData, color: DCIMCharts.palette.amber },
+      ],
+    });
+
+    document.querySelectorAll(".iface-row").forEach(r => {
+      r.classList.toggle("is-selected", r.dataset.iface === name);
+    });
+  }
+
+  document.querySelectorAll(".iface-row").forEach(row => {
+    row.addEventListener("click", () => render(row.dataset.iface));
+  });
+  if (current) render(current);
+});
+</script>
+{% endblock %}

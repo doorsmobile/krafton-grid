@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Top Talkers · Storage{% endblock %}
+{% block page_title %}Storage — Top Talkers{% endblock %}
+{% block page_sub %}Highest volume IOPS · ranked from Redis 1-hour minute rings{% endblock %}
+{% block content %}
+<p class="hint"><a href="/storage">← Back to Storage</a></p>
+
+<div class="grid grid-3">
+  <div class="panel">
+    <h3>Window</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Lookback</span><span class="stat-value">{{ window_minutes }} min</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Ring depth</span><span class="stat-value">60 min</span></div>
+  </div>
+  <div class="panel">
+    <h3>Sample cadence</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Every</span><span class="stat-value">60s</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Last</span><span class="stat-value mono" style="font-size:0.85rem">{{ collector.last_sample_ts or '—' }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Why Redis</h3>
+    <p class="hint" style="margin:0">Per-volume minute samples live in <code>…:st:hist:{volume_id}</code> (LTRIM 60). Top Talkers ranks peak IOPS without scanning long-term stores.</p>
+  </div>
+</div>
+
+<div class="grid grid-3" style="margin-top:1rem">
+  <div class="panel span-2">
+    <h2>Top talkers — IOPS &amp; latency</h2>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Volume</th>
+            <th>Cluster</th>
+            <th>Role</th>
+            <th>Now IOPS</th>
+            <th>Window peak</th>
+            <th>Avg IOPS</th>
+            <th>Avg lat W</th>
+            <th>Thr</th>
+            <th>Err</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in talkers %}
+          <tr class="click-row" onclick="location.href='/storage/cluster/{{ t.cluster_id }}'">
+            <td>{{ t.rank }}</td>
+            <td class="mono"><a href="/storage/cluster/{{ t.cluster_id }}">{{ t.volume_id }}</a></td>
+            <td class="mono">{{ t.cluster_id }}</td>
+            <td>{{ t.role }}</td>
+            <td class="mono">{{ t.iops_h }}</td>
+            <td class="mono"><strong>{{ t.peak_iops_h }}</strong></td>
+            <td class="mono muted">{{ t.window_avg_iops }}</td>
+            <td class="mono">{{ t.window_avg_lat_ms }} ms</td>
+            <td class="mono">{{ t.throughput_mbs }} MB/s</td>
+            <td class="mono {% if t.errors %}warn-text{% endif %}">{{ t.errors }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10" class="muted">No talker data yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Peak IOPS (top 10)</h2>
+    <div id="chart-talkers" class="chart chart-lg"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const rows = {{ talkers[:10]|tojson }};
+  Highcharts.chart("chart-talkers", {
+    chart: { type: "bar" },
+    xAxis: {
+      categories: rows.map(r => r.volume_id),
+      labels: { style: { fontSize: "9px" } },
+    },
+    yAxis: { title: { text: "IOPS" } },
+    legend: { enabled: false },
+    series: [{
+      name: "Window peak",
+      data: rows.map(r => r.window_peak_iops),
+      color: DCIMCharts.palette.amber,
+      point: { events: { click: function () {
+        const row = rows[this.index];
+        if (row) location.href = "/storage/cluster/" + row.cluster_id;
+      } } },
+    }],
+  });
+});
+</script>
+{% endblock %}

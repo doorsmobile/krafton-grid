@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Resource Usage · {{ site_name }}{% endblock %}
+{% block page_title %}Resource Usage{% endblock %}
+{% block page_sub %}Compute · storage · network usage for cost and performance{% endblock %}
+{% block content %}
+<div class="grid grid-3">
+  <div class="panel">
+    <h2>Compute</h2>
+    <div class="stat-row"><span class="stat-label">GPU util</span><span class="stat-value mono">{{ usage.compute.gpu_util_pct }}%</span></div>
+    <div class="stat-row"><span class="stat-label">GPU count</span><span class="stat-value mono">{{ usage.compute.gpu_count }}</span></div>
+    <div class="stat-row"><span class="stat-label">K8s CPU</span><span class="stat-value mono">{{ usage.compute.k8s_cpu_util_pct }}%</span></div>
+    <div class="stat-row"><span class="stat-label">Pods</span><span class="stat-value mono">{{ usage.compute.k8s_pod_count }}</span></div>
+    <div class="stat-row"><span class="stat-label">IT load</span><span class="stat-value mono">{{ usage.compute.it_load_mw }} MW</span></div>
+  </div>
+  <div class="panel">
+    <h2>Storage</h2>
+    <div class="stat-row"><span class="stat-label">Used</span><span class="stat-value mono">{{ usage.storage.used_pb }} / {{ usage.storage.capacity_pb }} PB</span></div>
+    <div class="stat-row"><span class="stat-label">Util</span><span class="stat-value mono">{{ usage.storage.util_pct }}%</span></div>
+    <div class="stat-row"><span class="stat-label">Clusters</span><span class="stat-value mono">{{ usage.storage.clusters }}</span></div>
+  </div>
+  <div class="panel">
+    <h2>Network &amp; Cloud</h2>
+    <div class="stat-row"><span class="stat-label">Eth fabric</span><span class="stat-value mono">{{ usage.network.eth_fabric_util_pct }}%</span></div>
+    <div class="stat-row"><span class="stat-label">AWS GPU</span><span class="stat-value mono">{{ usage.cloud.aws_gpu_util_pct }}%</span></div>
+    <div class="stat-row"><span class="stat-label">NHN GPU</span><span class="stat-value mono">{{ usage.cloud.nhn_gpu_util_pct }}%</span></div>
+    <div class="stat-row"><span class="stat-label">GCP storage</span><span class="stat-value mono">{{ usage.cloud.gcp_storage_used_tb }} TB</span></div>
+  </div>
+
+  <div class="panel span-2">
+    <h2>Recommendations</h2>
+    <p class="hint">Usage-driven actions — each links to an operator page (API listed below)</p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Title</th><th>Detail</th><th>Page</th></tr></thead>
+        <tbody>
+          {% for r in usage.recommendations %}
+          <tr>
+            <td><strong>{{ r.title }}</strong></td>
+            <td>{{ r.detail }}</td>
+            <td><a href="{{ r.href }}">{{ r.href }}</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Developer APIs</h2>
+    {% for k, v in usage.apis.items() %}
+    <div class="stat-row"><span class="stat-label">{{ k }}</span><span class="stat-value mono" style="font-size:0.75rem">{{ v }}</span></div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ disk.id }} · GCP{% endblock %}
+{% block page_title %}{{ disk.id }}{% endblock %}
+{% block page_sub %}{{ disk.type }} · {{ disk.size_tb }} TB · attached {{ disk.attached }}{% endblock %}
+{% block content %}
+<p class="hint"><a href="/cloud">← Cloud</a> · <a href="/cloud/gcp">GCP Storage</a></p>
+
+<div class="grid grid-4">
+  <div class="panel">
+    <h3>Identity</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Type</span><span class="stat-value">{{ disk.type }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Attached</span><span class="stat-value" style="font-size:0.85rem">{{ disk.attached }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Size</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Capacity</span><span class="stat-value">{{ disk.size_tb }} TB</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Util</span><span class="stat-value">{{ disk.util_pct }}%</span></div>
+  </div>
+  <div class="panel">
+    <h3>Live</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">IOPS</span><span class="stat-value mono">{{ disk.iops }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Latency</span><span class="stat-value mono">{{ disk.latency_ms }} ms</span></div>
+  </div>
+  <div class="panel">
+    <h3>Score</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Hotness</span><span class="stat-value">{{ disk.score }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Ring</span><span class="stat-value">60 min</span></div>
+  </div>
+</div>
+
+<div class="grid grid-1" style="margin-top:1rem">
+  <div class="panel">
+    <h2>1h IOPS</h2>
+    <div id="chart-iops" class="chart chart-lg"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const series = {{ series_json|safe }};
+  Highcharts.chart("chart-iops", {
+    chart: { type: "areaspline", zoomType: "x" },
+    xAxis: { type: "datetime" },
+    yAxis: { title: { text: "IOPS" } },
+    series: [{ name: "IOPS", data: series.map(p => [Date.parse(p.t), p.v]), color: DCIMCharts.palette.teal }],
+    plotOptions: { areaspline: { fillOpacity: 0.12, marker: { enabled: false }, lineWidth: 2 } },
+  });
+});
+</script>
+{% endblock %}

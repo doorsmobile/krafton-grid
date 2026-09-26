@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% block title %}Main · {{ site_name }}{% endblock %}
+{% block page_title %}Main{% endblock %}
+{% block page_sub %}Facility · AI · Cloud — 3×3 · click any card for detail{% endblock %}
+{% block content %}
+{% set st_cap = it_summary.storage.capacity_pb %}
+{% set st_used = it_live.storage_used_pb %}
+{% set st_pct = ((st_used / st_cap) * 100) if st_cap else 0 %}
+
+<div class="main-section">Facility</div>
+<div class="grid grid-3">
+  <a class="panel panel-link ov-card" href="/facility">
+    <div class="ov-head">
+      <h3>Power</h3>
+      <span class="ov-hero"><span id="ov-it">{{ '%.1f'|format(live.it_load_mw) }}</span><span style="font-size:0.7em;font-weight:600;color:var(--muted)"> MW</span></span>
+    </div>
+    <div id="gauge-pue-mini" class="ov-gauge"></div>
+    <div class="ov-sub"><span>PUE</span><strong id="ov-pue">{{ '%.3f'|format(live.pue) }}</strong></div>
+    <div class="link-hint">Facility →</div>
+  </a>
+  <a class="panel panel-link ov-card" href="/facility">
+    <div class="ov-head">
+      <h3>Capacity</h3>
+      <span class="ov-hero" id="campus-util">{{ '%.1f'|format(live.utilization_pct) }}%</span>
+    </div>
+    <div id="gauge-campus" class="ov-gauge"></div>
+    <div class="ov-sub"><span>Online</span><strong>20 MW M1</strong></div>
+    <div class="link-hint">Facility →</div>
+  </a>
+  <a class="panel panel-link ov-card" href="/facility">
+    <div class="ov-head">
+      <h3>Cooling</h3>
+      <span class="ov-hero" id="ov-cool">{{ live.cooling_load_pct }}%</span>
+    </div>
+    <div class="bar tall"><span id="bar-cool" style="width:{{ live.cooling_load_pct }}%"></span></div>
+    <div id="spark-cool" class="ov-spark"></div>
+    <div class="ov-sub"><span>Loop</span><strong id="ov-loop">{{ live.liquid_loop_temp_c }}°C</strong></div>
+    <div class="link-hint">Facility →</div>
+  </a>
+</div>
+
+<div class="main-section">AI</div>
+<div class="grid grid-3">
+  <a class="panel panel-link ov-card" href="/gpu-fleet">
+    <div class="ov-head">
+      <h3>GPU B300</h3>
+      <span class="ov-hero" id="ov-gpu">{{ it_live.gpu_utilization_pct }}%</span>
+    </div>
+    <div class="bar tall"><span id="bar-gpu" style="width:{{ it_live.gpu_utilization_pct }}%"></span></div>
+    <div id="spark-gpu" class="ov-spark"></div>
+    <div class="ov-sub"><span>Fleet {{ it_summary.gpu.count }}</span><strong>SM util</strong></div>
+    <div class="link-hint">GPU Fleet →</div>
+  </a>
+  <a class="panel panel-link ov-card" href="/kubernetes">
+    <div class="ov-head">
+      <h3>Dell K8s</h3>
+      <span class="ov-hero" id="ov-pods">{{ it_live.k8s_pod_count }}</span>
+    </div>
+    <div class="bar tall"><span id="bar-k8s" style="width:{{ it_live.k8s_cpu_util_pct }}%"></span></div>
+    <div class="ov-sub"><span>Nodes {{ it_summary.kubernetes.nodes }}</span><strong id="ov-k8s-cpu">{{ it_live.k8s_cpu_util_pct }}% CPU</strong></div>
+    <div class="link-hint">Kubernetes →</div>
+  </a>
+  <a class="panel panel-link ov-card" href="/storage">
+    <div class="ov-head">
+      <h3>IBM Storage</h3>
+      <span class="ov-hero" id="ov-st-pct">{{ '%.0f'|format(st_pct) }}%</span>
+    </div>
+    <div class="bar tall"><span id="bar-st" class="steel" style="width:{{ st_pct }}%"></span></div>
+    <div id="spark-st" class="ov-spark"></div>
+    <div class="ov-sub"><span>Used <strong id="ov-st">{{ st_used }}</strong> PB</span><span>{{ st_cap }} PB</span></div>
+    <div class="link-hint">Storage →</div>
+  </a>
+</div>
+
+<div class="main-section">Cloud</div>
+<div class="grid grid-3">
+  <a class="panel panel-link ov-card" href="/cloud">
+    <div class="ov-head">
+      <h3>AWS GPUaaS</h3>
+      <span class="ov-hero" id="ov-aws">{{ cloud_live.aws_gpu_util_pct }}%</span>
+    </div>
+    <div class="bar tall"><span id="bar-aws" style="width:{{ cloud_live.aws_gpu_util_pct }}%"></span></div>
+    <div class="ov-sub"><span>Running</span><strong id="ov-aws-n">{{ cloud_live.aws_running_instances }}</strong></div>
+    <div class="link-hint">Cloud →</div>
+  </a>
+  <a class="panel panel-link ov-card" href="/cloud">
+    <div class="ov-head">
+      <h3>GCP Storage</h3>
+      <span class="ov-hero" style="font-size:1.05rem"><span id="ov-gcp">{{ cloud_live.gcp_storage_used_tb }}</span><span style="font-size:0.65em;color:var(--muted)"> TB</span></span>
+    </div>
+    <div id="spark-gcp" class="ov-spark"></div>
+    <div class="ov-sub"><span>Ops/s</span><strong id="ov-gcp-ops">{{ cloud_live.gcp_ops_per_s }}</strong></div>
+    <div class="link-hint">Cloud →</div>
+  </a>
+  <a class="panel panel-link ov-card" href="/cloud">
+    <div class="ov-head">
+      <h3>NHN GPUaaS</h3>
+      <span class="ov-hero" id="ov-nhn">{{ cloud_live.nhn_gpu_util_pct }}%</span>
+    </div>
+    <div class="bar tall"><span id="bar-nhn" style="width:{{ cloud_live.nhn_gpu_util_pct }}%"></span></div>
+    <div class="ov-sub"><span>Active</span><strong id="ov-nhn-n">{{ cloud_live.nhn_active_instances }}</strong></div>
+    <div class="link-hint">Cloud →</div>
+  </a>
+</div>
+
+<div class="grid grid-3" style="margin-top:1.25rem">
+  <a class="panel panel-link span-2" href="/gpu-fleet">
+    <h2>GPU Utilization</h2>
+    <p class="hint">On-prem B300 performance</p>
+    <div id="chart-gpu-main" class="chart chart-lg"></div>
+  </a>
+  <a class="panel panel-link" href="/facility">
+    <h2>Efficiency</h2>
+    <p class="hint">Target PUE {{ '%.2f'|format(live.target_pue) }}</p>
+    <div id="chart-pue" class="chart chart-sm"></div>
+  </a>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", async () => {
+  const setBar = (id, pct) => {
+    const el = document.getElementById(id);
+    if (el) el.style.width = Math.max(0, Math.min(100, Number(pct) || 0)) + "%";
+  };
+  const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  const pushSpark = (c, v, ts) => {
+    if (!c || !c.series[0]) return;
+    c.series[0].addPoint([ts, v], true, c.series[0].data.length > 40);
+  };
+
+  const [gpuSeries, coolSeries, stSeries, gcpSeries] = await Promise.all([
+    DCIMCharts.fetchSeries("gpu_utilization_pct"),
+    DCIMCharts.fetchSeries("cooling_load_pct"),
+    DCIMCharts.fetchSeries("storage_used_pb"),
+    DCIMCharts.fetchSeries("gcp_storage_used_tb").catch(() => []),
+  ]);
+
+  const sparkGpu = DCIMCharts.sparkline("spark-gpu", gpuSeries, { max: 100, min: 0, color: DCIMCharts.palette.teal });
+  const sparkCool = DCIMCharts.sparkline("spark-cool", coolSeries, { max: 100, min: 0, color: DCIMCharts.palette.steel });
+  const sparkSt = DCIMCharts.sparkline("spark-st", stSeries, { color: DCIMCharts.palette.steel });
+  const sparkGcp = DCIMCharts.sparkline("spark-gcp", gcpSeries, { color: DCIMCharts.palette.steel });
+
+  const pueMini = DCIMCharts.miniGauge("gauge-pue-mini", {{ live.pue }}, 1.6, { name: "PUE" });
+  const campusGauge = DCIMCharts.miniGauge("gauge-campus", {{ live.utilization_pct }}, 100, { name: "Campus" });
+
+  const gpuChart = DCIMCharts.lineChart("chart-gpu-main", [
+    { name: "B300 SM util %", data: gpuSeries, color: DCIMCharts.palette.teal },
+  ], { yTitle: "%" });
+  const pueGauge = DCIMCharts.gauge("chart-pue", {{ live.pue }}, 1.6, { name: "PUE", unit: "PUE", height: 180 });
+  const stCap = {{ it_summary.storage.capacity_pb }};
+
+  DCIM.onLive.push((live) => {
+    setTxt("ov-gpu", live.gpu_utilization_pct + "%");
+    setBar("bar-gpu", live.gpu_utilization_pct);
+    setTxt("ov-it", live.it_load_mw.toFixed(1));
+    setTxt("ov-pue", live.pue.toFixed(3));
+    setTxt("ov-st", live.storage_used_pb);
+    const stPct = stCap ? (live.storage_used_pb / stCap) * 100 : 0;
+    setTxt("ov-st-pct", stPct.toFixed(0) + "%");
+    setBar("bar-st", stPct);
+    setTxt("ov-loop", live.liquid_loop_temp_c + "°C");
+    setTxt("ov-cool", live.cooling_load_pct + "%");
+    setBar("bar-cool", live.cooling_load_pct);
+    setTxt("campus-util", live.utilization_pct.toFixed(1) + "%");
+    setTxt("ov-pods", live.k8s_pod_count);
+    setTxt("ov-k8s-cpu", live.k8s_cpu_util_pct + "% CPU");
+    setBar("bar-k8s", live.k8s_cpu_util_pct);
+    setTxt("ov-nhn", live.nhn_gpu_util_pct + "%");
+    setBar("bar-nhn", live.nhn_gpu_util_pct);
+    setTxt("ov-nhn-n", live.nhn_active_instances);
+    setTxt("ov-aws", live.aws_gpu_util_pct + "%");
+    setBar("bar-aws", live.aws_gpu_util_pct);
+    setTxt("ov-aws-n", live.aws_running_instances);
+    setTxt("ov-gcp", live.gcp_storage_used_tb);
+    setTxt("ov-gcp-ops", live.gcp_ops_per_s);
+    const t = Date.parse(live.ts);
+    if (gpuChart.series[0]) gpuChart.series[0].addPoint([t, live.gpu_utilization_pct], true, gpuChart.series[0].data.length > 60);
+    pueGauge.series[0].points[0].update(live.pue);
+    pueMini.series[0].points[0].update(live.pue);
+    campusGauge.series[0].points[0].update(live.utilization_pct);
+    pushSpark(sparkGpu, live.gpu_utilization_pct, t);
+    pushSpark(sparkCool, live.cooling_load_pct, t);
+    pushSpark(sparkSt, live.storage_used_pb, t);
+    if (gcpSeries.length) pushSpark(sparkGcp, live.gcp_storage_used_tb, t);
+  });
+});
+</script>
+{% endblock %}

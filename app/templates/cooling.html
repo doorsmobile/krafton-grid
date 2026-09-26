@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Cooling · {{ site_name }}{% endblock %}
+{% block page_title %}Facility — Liquid Cooling{% endblock %}
+{% block page_sub %}CDU → manifold → cold plate / rear door — click a stage for detail page{% endblock %}
+{% block content %}
+<p class="hint"><a href="/facility">← Facility overview</a></p>
+
+<div class="grid grid-4">
+  <div class="panel">
+    <h3>Plant load</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Cooling</span><span class="stat-value" id="cool-pct">{{ fac_live.cooling_load_pct }}%</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Outdoor</span><span class="stat-value" id="out-temp">{{ live.outdoor_temp_c }}°C</span></div>
+  </div>
+  <div class="panel">
+    <h3>Liquid loop</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Supply</span><span class="stat-value" id="supply">{{ fac_live.liquid_loop_temp_c }}°C</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Return</span><span class="stat-value" id="return">{{ fac_live.return_temp_c }}°C</span></div>
+  </div>
+  <div class="panel">
+    <h3>Humidity</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Hall</span><span class="stat-value" id="humidity">{{ live.humidity_pct }}%</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Mode</span><span class="stat-value">Liquid-first</span></div>
+  </div>
+  <div class="panel">
+    <h3>Stages</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Count</span><span class="stat-value">{{ chain|length }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Redundancy</span><span class="stat-value">N+1</span></div>
+  </div>
+</div>
+
+<div class="grid grid-3" style="margin-top:1rem">
+  <div class="panel span-2">
+    <h2>Thermal loop</h2>
+    <p class="hint">Click a stage → supply/return/flow 1h detail page.</p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>ID</th><th>Stage</th><th>Vendor</th><th>Load</th><th>ΔT</th><th>Flow</th><th>Mode</th></tr></thead>
+        <tbody>
+          {% for s in chain %}
+          <tr class="click-row" onclick="location.href='/facility/cooling/stage/{{ s.id }}'">
+            <td class="mono"><a href="/facility/cooling/stage/{{ s.id }}">{{ s.id }}</a></td>
+            <td>{{ s.stage }}</td>
+            <td class="muted">{{ s.vendor }}</td>
+            <td>{{ s.load_pct }}%</td>
+            <td class="mono">{{ s.delta_t_c }}°C</td>
+            <td class="mono">{{ s.flow_lpm }} L/min</td>
+            <td>{{ s.mode }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Loop temperatures</h2>
+    <div id="chart-temp" class="chart chart-lg"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", async () => {
+  const history = await (await fetch("/api/history?limit=60")).json();
+  const returnSeries = history.map((h) => [Date.parse(h.ts), h.return_temp_c]);
+  const supplySeries = history.map((h) => [Date.parse(h.ts), h.liquid_loop_temp_c]);
+  const tempChart = DCIMCharts.lineChart("chart-temp", [
+    { name: "Supply °C", data: supplySeries, color: DCIMCharts.palette.teal },
+    { name: "Return °C", data: returnSeries, color: DCIMCharts.palette.amber },
+  ], { yTitle: "°C" });
+  DCIM.onLive.push((live) => {
+    const t = Date.parse(live.ts);
+    tempChart.series[0].addPoint([t, live.liquid_loop_temp_c], true, tempChart.series[0].data.length > 60);
+    tempChart.series[1].addPoint([t, live.return_temp_c], true, tempChart.series[1].data.length > 60);
+    document.getElementById("cool-pct").textContent = live.cooling_load_pct + "%";
+    document.getElementById("out-temp").textContent = live.outdoor_temp_c + "°C";
+    document.getElementById("supply").textContent = live.liquid_loop_temp_c + "°C";
+    document.getElementById("return").textContent = live.return_temp_c + "°C";
+    document.getElementById("humidity").textContent = live.humidity_pct + "%";
+  });
+});
+</script>
+{% endblock %}

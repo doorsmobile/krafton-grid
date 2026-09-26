@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Metrics · Observability · {{ site_name }}{% endblock %}
+{% block page_title %}Metrics{% endblock %}
+{% block page_sub %}PromQL against Redis live series — same data developers query via API{% endblock %}
+{% block content %}
+<div class="grid grid-2">
+  <div class="panel span-2">
+    <h2>PromQL query</h2>
+    <p class="hint">Try <code>kg_it_load_mw</code>, <code>kg_pue</code>, <code>kg_gpu_util_pct</code>, <code>rate(kg_cooling_load_pct[5m])</code></p>
+    <div class="btn-row" style="align-items:stretch">
+      <input id="promql-input" class="mono" style="flex:1;min-width:12rem;padding:0.55rem 0.75rem;border-radius:8px;border:1px solid var(--line);background:var(--graphite);color:var(--ink)" value="kg_it_load_mw" />
+      <button class="btn primary" id="promql-run" type="button">Run</button>
+    </div>
+    <pre class="code-block" id="promql-out" style="margin-top:0.85rem;max-height:420px;overflow:auto">{{ sample | tojson(indent=2) }}</pre>
+    <p class="hint">API: <code>POST /api/observability/metrics/query</code> · body <code>{"query":"kg_gpu_util_pct"}</code></p>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const input = document.getElementById("promql-input");
+const out = document.getElementById("promql-out");
+async function runProm() {
+  const query = input.value.trim();
+  const res = await fetch("/api/observability/metrics/query", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({query, limit: 60}),
+  });
+  out.textContent = JSON.stringify(await res.json(), null, 2);
+}
+document.getElementById("promql-run").addEventListener("click", runProm);
+input.addEventListener("keydown", (e) => { if (e.key === "Enter") runProm(); });
+</script>
+{% endblock %}

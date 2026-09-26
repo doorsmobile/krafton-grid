@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Facility · {{ site_name }}{% endblock %}
+{% block page_title %}Facility — Power · Cooling · Capacity{% endblock %}
+{% block page_sub %}Modular campus · open a row for detail page{% endblock %}
+{% block content %}
+<div class="grid grid-4">
+  <div class="panel">
+    <h3>IT load</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Live</span><span class="stat-value" id="fac-it">{{ '%.1f'|format(fac_live.it_load_mw) }} MW</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Critical</span><span class="stat-value">{{ fac_live.critical_it_mw }} MW</span></div>
+  </div>
+  <div class="panel">
+    <h3>PUE / UPS</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">PUE</span><span class="stat-value" id="fac-pue">{{ '%.3f'|format(fac_live.pue) }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">UPS</span><span class="stat-value" id="fac-ups">{{ fac_live.ups_load_pct }}%</span></div>
+  </div>
+  <div class="panel">
+    <h3>Cooling</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Plant</span><span class="stat-value" id="fac-cool">{{ fac_live.cooling_load_pct }}%</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Loop</span><span class="stat-value" id="fac-loop">{{ fac_live.liquid_loop_temp_c }}°C</span></div>
+  </div>
+  <div class="panel">
+    <h3>Campus</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Util</span><span class="stat-value" id="fac-util">{{ '%.1f'|format(fac_live.utilization_pct) }}%</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Envelope</span><span class="stat-value">{{ fac_live.design_capacity_mw }} MW</span></div>
+  </div>
+</div>
+
+<div class="grid grid-2" style="margin-top:1rem">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Power path</h2>
+      <a class="btn btn-ghost btn-sm" href="/power">Full chain</a>
+    </div>
+    <p class="hint">Utility → UPS → PDU → rack — click a stage for detail.</p>
+    <div class="table-wrap">
+      <table class="data compact">
+        <thead><tr><th>#</th><th>Stage</th><th>Vendor</th><th>Load</th><th>kW</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for s in power_talkers %}
+          <tr class="click-row" onclick="location.href='/facility/power/stage/{{ s.id }}'">
+            <td>{{ s.rank }}</td>
+            <td class="mono"><a href="/facility/power/stage/{{ s.id }}">{{ s.id }}</a> {{ s.stage }}</td>
+            <td class="muted">{{ s.vendor }}</td>
+            <td>
+              <div class="util-bar"><span style="width:{{ [s.load_pct, 100]|min }}%"></span></div>
+              {{ s.load_pct }}%
+            </td>
+            <td class="mono">{{ s.power_kw }}</td>
+            <td><span class="badge {{ 'ok' if s.status=='online' else 'warn' }}">{{ s.status }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Cooling loop</h2>
+      <a class="btn btn-ghost btn-sm" href="/cooling">Full loop</a>
+    </div>
+    <p class="hint">Chillers → CDU → cold plate — click a stage for detail.</p>
+    <div class="table-wrap">
+      <table class="data compact">
+        <thead><tr><th>#</th><th>Stage</th><th>Load</th><th>ΔT</th><th>Flow</th><th>Mode</th></tr></thead>
+        <tbody>
+          {% for s in cooling_talkers %}
+          <tr class="click-row" onclick="location.href='/facility/cooling/stage/{{ s.id }}'">
+            <td>{{ s.rank }}</td>
+            <td class="mono"><a href="/facility/cooling/stage/{{ s.id }}">{{ s.id }}</a> {{ s.stage }}</td>
+            <td>{{ s.load_pct }}%</td>
+            <td class="mono">{{ s.delta_t_c }}°C</td>
+            <td class="mono">{{ s.flow_lpm }} L/min</td>
+            <td class="muted">{{ s.mode }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-2" style="margin-top:1rem">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Halls</h2>
+      <a class="btn btn-ghost btn-sm" href="/capacity">Capacity</a>
+    </div>
+    <p class="hint">M1 halls — click for live MW / density detail.</p>
+    <div class="table-wrap">
+      <table class="data compact">
+        <thead><tr><th>Hall</th><th>Live</th><th>Design</th><th>Util</th><th>Racks</th><th>Cooling</th></tr></thead>
+        <tbody>
+          {% for h in halls %}
+          <tr class="click-row" onclick="location.href='/facility/hall/{{ h.id }}'">
+            <td class="mono"><a href="/facility/hall/{{ h.id }}">{{ h.id }}</a> {{ h.name }}</td>
+            <td class="mono">{{ h.live_mw }} MW</td>
+            <td class="mono">{{ h.design_mw }} MW</td>
+            <td>
+              <div class="util-bar"><span style="width:{{ [h.util_pct, 100]|min }}%"></span></div>
+              {{ h.util_pct }}%
+            </td>
+            <td>{{ h.rack_count }}</td>
+            <td class="muted">{{ h.cooling }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Modular centers</h2>
+      <span class="muted">5 × 20 MW</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data compact">
+        <thead><tr><th>Module</th><th>Phase</th><th>Live</th><th>Design</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for m in modules %}
+          <tr>
+            <td class="mono"><strong>{{ m.id }}</strong> {{ m.name }}</td>
+            <td>{{ m.phase }}</td>
+            <td class="mono">{{ m.live_mw }} MW</td>
+            <td class="mono">{{ m.design_mw }} MW</td>
+            <td><span class="badge {{ 'ok' if m.status=='online' else ('warn' if m.status=='commissioning' else 'idle') }}">{{ m.status }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  DCIM.onLive.push((live) => {
+    document.getElementById("fac-it").textContent = live.it_load_mw.toFixed(1) + " MW";
+    document.getElementById("fac-pue").textContent = live.pue.toFixed(3);
+    document.getElementById("fac-ups").textContent = live.ups_load_pct + "%";
+    document.getElementById("fac-cool").textContent = live.cooling_load_pct + "%";
+    document.getElementById("fac-loop").textContent = live.liquid_loop_temp_c + "°C";
+    document.getElementById("fac-util").textContent = live.utilization_pct.toFixed(1) + "%";
+  });
+});
+</script>
+{% endblock %}

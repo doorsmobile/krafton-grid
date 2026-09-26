@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}{{ pod.id }} · GPU Fleet{% endblock %}
+{% block page_title %}{{ pod.id }} — {{ pod.name }}{% endblock %}
+{% block page_sub %}Module {{ pod.module_id }} · {{ pod.gpu_count }}× B300 · {{ pod.nodes }} nodes · {{ pod.racks }} racks{% endblock %}
+{% block content %}
+<p class="hint"><a href="/gpu-fleet">← Back to GPU Fleet</a></p>
+
+<div class="grid grid-4">
+  <div class="panel">
+    <h3>Identity</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Module</span><span class="stat-value">{{ pod.module_id }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Status</span><span class="stat-value"><span class="badge {{ 'ok' if pod.status=='online' else 'warn' }}">{{ pod.status }}</span></span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">GPUs</span><span class="stat-value">{{ pod.gpu_count }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Live util</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">SM</span><span class="stat-value">{{ metrics.gpu_util_pct }}%</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Active</span><span class="stat-value">{{ metrics.gpu_active }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Score</span><span class="stat-value">{{ metrics.score }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Power / thermal</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Power</span><span class="stat-value mono">{{ metrics.power_kw }} kW</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Temp</span><span class="stat-value">{{ metrics.temp_c }}°C</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Racks</span><span class="stat-value">{{ pod.racks }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Topology</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Nodes</span><span class="stat-value">{{ pod.nodes }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Sampled</span><span class="stat-value">{{ nodes|length }}</span></div>
+    <div class="stat-row" style="border:0"><span class="stat-label">Scheduler</span><span class="stat-value">Slurm</span></div>
+  </div>
+</div>
+
+<div class="grid grid-3" style="margin-top:1rem">
+  <div class="panel span-2">
+    <h2>Nodes in this pod</h2>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Node</th>
+            <th>Rack</th>
+            <th>Slurm</th>
+            <th>Partition</th>
+            <th>GPUs</th>
+            <th>CF util</th>
+            <th>CF mem</th>
+            <th>Power</th>
+            <th>Temp</th>
+            <th>Job</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for n in nodes %}
+          <tr class="click-row" onclick="location.href='/gpu-fleet/node/{{ n.id }}'">
+            <td class="mono"><a href="/gpu-fleet/node/{{ n.id }}">{{ n.hostname }}</a></td>
+            <td>{{ n.rack }}</td>
+            <td><span class="badge {{ 'ok' if n.slurm_state.startswith('ALLOC') else ('warn' if n.slurm_state=='MIXED' else 'idle') }}">{{ n.slurm_state }}</span></td>
+            <td>{{ n.partition }}</td>
+            <td>{{ n.gpus_alloc }}/{{ n.gpus_total }}</td>
+            <td>{{ n.cubeflow.gpu_util_pct }}%</td>
+            <td>{{ n.cubeflow.gpu_mem_pct }}%</td>
+            <td>{{ n.cubeflow.power_w }} W</td>
+            <td>{{ n.cubeflow.temp_c }}°C</td>
+            <td class="mono">{{ n.slurm_job or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10" class="muted">No node sample for this pod.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>1h util / power / temp</h2>
+    <div id="chart-util" class="chart chart-lg"></div>
+    <div id="chart-pwr" class="chart" style="height:180px;margin-top:0.75rem"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const series = {{ series_json|safe }};
+  Highcharts.chart("chart-util", {
+    chart: { type: "areaspline", zoomType: "x" },
+    xAxis: { type: "datetime" },
+    yAxis: { title: { text: "%" }, max: 100 },
+    series: [
+      { name: "GPU util %", data: series.map(p => [Date.parse(p.t), p.util]), color: DCIMCharts.palette.teal },
+    ],
+    plotOptions: { areaspline: { fillOpacity: 0.15, marker: { enabled: false }, lineWidth: 2 } },
+  });
+  Highcharts.chart("chart-pwr", {
+    chart: { type: "spline" },
+    xAxis: { type: "datetime" },
+    yAxis: [
+      { title: { text: "kW" } },
+      { title: { text: "°C" }, opposite: true },
+    ],
+    series: [
+      { name: "Power kW", data: series.map(p => [Date.parse(p.t), p.power]), color: DCIMCharts.palette.amber, yAxis: 0 },
+      { name: "Temp °C", data: series.map(p => [Date.parse(p.t), p.temp]), color: DCIMCharts.palette.steel, yAxis: 1 },
+    ],
+    plotOptions: { spline: { marker: { enabled: false }, lineWidth: 2 } },
+  });
+});
+</script>
+{% endblock %}

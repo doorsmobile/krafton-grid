@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Inventory · {{ site_name }}{% endblock %}
+{% block page_title %}Inventory{% endblock %}
+{% block page_sub %}Facility + IT unified asset catalog (demo){% endblock %}
+{% block content %}
+<div class="grid grid-3">
+  <div class="panel">
+    <h2>Rollup</h2>
+    <div class="stat-row"><span class="stat-label">B300 GPUs</span><span class="stat-value">{{ summary.gpu.count }}</span></div>
+    <div class="stat-row"><span class="stat-label">IBM Storage</span><span class="stat-value">{{ summary.storage.capacity_pb }} PB</span></div>
+    <div class="stat-row"><span class="stat-label">Arista switches</span><span class="stat-value">{{ summary.network.ethernet.spine + summary.network.ethernet.leaf }}</span></div>
+    <div class="stat-row"><span class="stat-label">NVIDIA IB</span><span class="stat-value">{{ summary.network.infiniband.switches }}</span></div>
+    <div class="stat-row"><span class="stat-label">Dell K8s</span><span class="stat-value">{{ summary.kubernetes.nodes }}</span></div>
+  </div>
+  <div class="panel span-2">
+    <h2>SKU catalog</h2>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>SKU</th><th>Category</th><th>Vendor</th><th>Qty</th><th>Unit</th><th>Location</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for a in assets %}
+          <tr>
+            <td><strong>{{ a.sku }}</strong></td>
+            <td>{{ a.category }}</td>
+            <td>{{ a.vendor }}</td>
+            <td>{{ a.qty }}</td>
+            <td>{{ a.unit }}</td>
+            <td>{{ a.location }}</td>
+            <td><span class="badge {{ 'ok' if a.status in ['online','Ready'] else ('warn' if a.status=='mixed' else 'idle') }}">{{ a.status }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

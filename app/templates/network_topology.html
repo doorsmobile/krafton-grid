@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Topology · Network{% endblock %}
+{% block page_title %}Network — Topology{% endblock %}
+{% block page_sub %}Arista leaf–spine Ethernet + NVIDIA Quantum-2 IB fabric{% endblock %}
+{% block content %}
+<div class="net-subnav">
+  <a href="/network">Overview</a>
+  <a href="/network/uplinks">Uplink Traffic</a>
+  <a href="/network/toptalkers">Top Talkers</a>
+  <a href="/network/inventory">Inventory</a>
+</div>
+
+<div class="grid grid-4">
+  <div class="panel">
+    <h3>Spines</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Arista 7800R3</span><span class="stat-value">{{ topology.summary.spines }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Leaves</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Arista 7060X6</span><span class="stat-value">{{ topology.summary.leaves }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>IB switches</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Quantum-2</span><span class="stat-value">{{ topology.summary.ib_switches }}</span></div>
+  </div>
+  <div class="panel">
+    <h3>Links drawn</h3>
+    <div class="stat-row" style="border:0"><span class="stat-label">Eth / IB</span><span class="stat-value">{{ topology.summary.eth_links }} / {{ topology.summary.ib_links }}</span></div>
+  </div>
+</div>
+
+<div class="grid grid-3" style="margin-top:1rem">
+  <div class="panel span-2">
+    <h2>Fabric map</h2>
+    <p class="hint">Spine tier (top) · Leaf ToR (middle, first 24 leaves linked for readability) · IB fabric (bottom). Click a node to open inventory detail.</p>
+    <div id="topo-canvas" class="topo-canvas" aria-label="Network topology"></div>
+  </div>
+  <div class="panel">
+    <h2>Fabric util</h2>
+    <div id="chart-topo-util" class="chart" style="height:220px"></div>
+    <div class="stat-row"><span class="stat-label">Eth</span><span class="stat-value" id="eth-util">{{ it_live.eth_fabric_util_pct }}%</span></div>
+    <div class="stat-row"><span class="stat-label">IB</span><span class="stat-value" id="ib-util">{{ it_live.ib_fabric_util_pct }}%</span></div>
+    <h2 style="margin-top:1.2rem">Legend</h2>
+    <div class="topo-legend">
+      <span><i class="sw spine"></i> Spine</span>
+      <span><i class="sw leaf"></i> Leaf</span>
+      <span><i class="sw ib"></i> IB</span>
+      <span><i class="ln eth"></i> 400GbE</span>
+      <span><i class="ln ib"></i> NDR</span>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", async () => {
+  const topo = {{ topology|tojson }};
+  const canvas = document.getElementById("topo-canvas");
+  const w = canvas.clientWidth || 900;
+  const h = 520;
+  canvas.style.height = h + "px";
+
+  const spines = topo.nodes.filter(n => n.role === "spine");
+  const leaves = topo.nodes.filter(n => n.role === "leaf").slice(0, 24);
+  const ibs = topo.nodes.filter(n => n.role === "ib-switch").slice(0, 12);
+  const pos = {};
+
+  function place(list, y) {
+    const n = list.length;
+    list.forEach((node, i) => {
+      const x = ((i + 1) / (n + 1)) * w;
+      pos[node.id] = { x, y, node };
+    });
+  }
+  place(spines, 70);
+  place(leaves, 240);
+  place(ibs, 420);
+
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  svg.setAttribute("width", "100%");
+  svg.setAttribute("height", h);
+
+  const linkLayer = document.createElementNS(svgNS, "g");
+  topo.links.forEach(L => {
+    const a = pos[L.source], b = pos[L.target];
+    if (!a || !b) return;
+    const line = document.createElementNS(svgNS, "line");
+    line.setAttribute("x1", a.x); line.setAttribute("y1", a.y);
+    line.setAttribute("x2", b.x); line.setAttribute("y2", b.y);
+    line.setAttribute("class", L.kind === "ib-fabric" ? "topo-link ib" : "topo-link eth");
+    linkLayer.appendChild(line);
+  });
+  svg.appendChild(linkLayer);
+
+  Object.values(pos).forEach(({ x, y, node }) => {
+    const g = document.createElementNS(svgNS, "g");
+    g.setAttribute("class", "topo-node " + node.role);
+    g.style.cursor = "pointer";
+    g.addEventListener("click", () => { location.href = "/network/device/" + node.id; });
+    const r = document.createElementNS(svgNS, "rect");
+    r.setAttribute("x", x - 36); r.setAttribute("y", y - 16);
+    r.setAttribute("width", 72); r.setAttribute("height", 32);
+    r.setAttribute("rx", 6);
+    const t = document.createElementNS(svgNS, "text");
+    t.setAttribute("x", x); t.setAttribute("y", y + 4);
+    t.setAttribute("text-anchor", "middle");
+    t.textContent = node.id;
+    g.appendChild(r); g.appendChild(t);
+    svg.appendChild(g);
+  });
+
+  // tier labels
+  [["Spine", 28], ["Leaf (sample)", 198], ["IB fabric", 378]].forEach(([label, y]) => {
+    const t = document.createElementNS(svgNS, "text");
+    t.setAttribute("x", 12); t.setAttribute("y", y);
+    t.setAttribute("class", "topo-tier-label");
+    t.textContent = label;
+    svg.appendChild(t);
+  });
+
+  canvas.appendChild(svg);
+
+  const eth = await DCIMCharts.fetchSeries("eth_fabric_util_pct");
+  const ib = await DCIMCharts.fetchSeries("ib_fabric_util_pct");
+  const chart = DCIMCharts.lineChart("chart-topo-util", [
+    { name: "Eth %", data: eth, color: DCIMCharts.palette.teal },
+    { name: "IB %", data: ib, color: DCIMCharts.palette.red },
+  ], { yTitle: "%" });
+  DCIM.onLive.push((live) => {
+    const t = Date.parse(live.ts);
+    chart.series[0].addPoint([t, live.eth_fabric_util_pct], true, chart.series[0].data.length > 60);
+    chart.series[1].addPoint([t, live.ib_fabric_util_pct], true, chart.series[1].data.length > 60);
+    document.getElementById("eth-util").textContent = live.eth_fabric_util_pct + "%";
+    document.getElementById("ib-util").textContent = live.ib_fabric_util_pct + "%";
+  });
+});
+</script>
+{% endblock %}

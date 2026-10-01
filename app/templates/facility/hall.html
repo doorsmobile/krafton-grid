@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set h = d.hall %}{% set s = d.state %}
+<div class="page-head">
+  <div><h1>{{ h.name }}</h1><p>{{ h.purpose }} · {{ h.cooling }}-cooled · design {{ h.design_mw|num(0) }} MW. Racks colored by hottest GPU; click a rack for its elevation.</p></div>
+  <div class="page-actions">{% for x in ['HA','HB','HC','HD'] %}<a class="btn {{ 'primary' if x == h.id else '' }} sm" href="/facility/hall/{{ x }}">{{ x }}</a>{% endfor %}</div>
+</div>
+<div class="g g-4">
+  <div class="panel tight">{{ kpi('IT load', s.it_mw|num(2), 'MW', s.util_pct ~ '% of design', live='site.halls.' ~ h.id ~ '.it_mw', fmt='f2', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Inlet air', s.inlet_c, '°C', 'RH ' ~ s.rh_pct ~ '%', live='site.halls.' ~ h.id ~ '.inlet_c', fmt='f1', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Rows', d.rows|length, '', (d.rows|map(attribute='racks')|map('length')|sum) ~ ' positions', size='s') }}</div>
+  <div class="panel tight"><div class="kpi"><div class="kpi-label">UPS pair</div>
+    <div class="row wrap mt-s" style="gap:6px">{% for uid, u in d.ups.items() %}<a href="/facility/power/{{ uid }}" class="pill {{ u.status|level }}">{{ uid }} · {{ u.load_pct|num(0) }}%</a>{% else %}<span class="muted small">planned</span>{% endfor %}</div></div></div>
+</div>
+<div class="panel mt">
+  {{ head('Floor plan', 'hot/cold aisle containment · liquid rows have one CDU each') }}
+  <div class="floor">
+    {% for row in d.rows %}
+    <div class="floor-row">
+      <div class="floor-row-label"><b>Row {{ row.id }}</b>{% if row.cdu %}<a href="/facility/cooling/{{ row.cdu }}"><span class="cdu-chip {{ row.cdu_status }}">{{ row.cdu }}</span></a><span class="xs">{{ row.supply_c|num(1) }} °C</span>{% else %}<span class="xs">{{ row.kind }}</span>{% endif %}</div>
+      <div class="floor-racks">
+        {% for r in row.racks %}
+        {% set cls = 'reserved' if r.kind == 'reserved' else ('crit' if r.failed or r.throttle else ('warn' if (r.temp_max or 0) > 80 else '')) %}
+        <a class="rack-tile {{ cls }}" href="/rack/{{ r.id }}" data-rack="{{ r.id }}" data-temp="{{ r.temp_max or '' }}">
+          <b>{{ r.id }}</b><span class="rk">{{ r.kind }}{% if r.kind == 'gpu' %} · {{ r.util|num(0) }}%{% endif %}</span>
+          <span class="rk">{{ r.kw|num(1) }} / {{ r.design_kw|num(0) }} kW</span>
+          {% if r.temp_max %}<span class="rk">max {{ r.temp_max|num(1) }} °C</span>{% endif %}
+          <span class="heat"></span>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="row mt"><div class="scale">35 °C<span class="ramp" id="ramp"></span>88 °C</div><span class="xs muted">amber border &gt; 80 °C · red = throttling / failed GPUs</span></div>
+</div>
+{% if d.crah %}
+<div class="panel flush mt">
+  {{ head('CRAH units', 'air side · CHW-fed fan walls') }}
+  <div class="table-wrap"><table class="t"><thead><tr><th>Unit</th><th class="right">Supply °C</th><th class="right">Return °C</th><th>Fan</th></tr></thead><tbody>
+    {% for cid, c in d.crah.items() %}<tr data-href="/facility/cooling/{{ cid }}"><td class="mono">{{ cid }}</td><td class="right">{{ c.supply_c }}</td><td class="right">{{ c.return_c }}</td><td><div class="cell-bar">{{ bar(c.fan_pct, 'steel') }}<span class="xs muted">{{ c.fan_pct }}%</span></div></td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById("ramp").style.background = HeatGrid.rampCSS("temp");
+document.querySelectorAll("[data-temp]").forEach((el) => { const t = parseFloat(el.dataset.temp); if (!isNaN(t)) el.querySelector(".heat").style.background = HeatGrid.color("temp", (t - 25) / 67); });
+</script>
+{% endblock %}

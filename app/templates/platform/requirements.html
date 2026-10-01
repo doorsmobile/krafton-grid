@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import icon %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Requirements</h1><p>The canonical spec this release implements — rendered from <span class="mono">docs/REQUIREMENTS.md</span> ({{ '{:,}'.format(d.chars) }} characters). The same file is served for download so the team always shares one source of truth.</p></div>
+  <div class="page-actions"><a class="btn teal" href="/platform/requirements.md">{{ icon('download') }} Download .md</a><a class="btn" href="/platform/tech-spec">Tech Spec</a></div>
+</div>
+<div class="g g-12">
+  <div class="s-3"><div class="panel doc-toc" id="toc"><div class="panel-title mb">Contents</div></div></div>
+  <div class="s-9"><div class="panel doc" id="doc">{{ d.html|safe }}</div></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const toc = document.getElementById("toc");
+  document.querySelectorAll("#doc h2, #doc h3").forEach((h) => {
+    if (!h.id) h.id = h.textContent.trim().toLowerCase().replace(/[^\w가-힣]+/g, "-");
+    const a = document.createElement("a"); a.href = "#" + h.id; a.textContent = h.textContent; a.className = h.tagName === "H3" ? "sub" : "";
+    toc.appendChild(a);
+  });
+})();
+</script>
+{% endblock %}

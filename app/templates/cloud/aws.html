@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set s = d.summary %}
+<div class="page-head">
+  <div><h1>AWS · GPUaaS</h1><p>EC2 GPU instances in ap-northeast-2 (Seoul): on-demand serving/eval capacity plus a reserved <b>EC2 Capacity Block</b> that absorbs on-prem queue overflow. Burst instances are launched by the Grid scheduler and terminated when the job finishes.</p></div>
+  <div class="page-actions"><a class="btn" href="/cloud">Cloud overview</a><a class="btn" href="/platform/simulation?run=cloud-burst">Simulate burst</a></div>
+</div>
+<div class="g g-5">
+  <div class="panel tight">{{ kpi('Instances running', s.running, '', s.pending ~ ' pending', live='cloud.aws.running', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('GPUs', s.gpus, '', 'H200 / B200', live='cloud.aws.gpus', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('GPU utilization', s.gpu_util, '%', 'running instances', live='cloud.aws.gpu_util', fmt='f1', spark='sp-util', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Burn rate', s.cost_hr_krw|krw, '/ h', 'on-demand + Capacity Block', live='cloud.aws.cost_hr_krw', fmt='krw', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Direct Connect', s.dx_gbps, 'Gb/s', '2 × 100G · Seoul', live='cloud.aws.dx_gbps', fmt='f1', size='s') }}</div>
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-5">
+    {{ head('Capacity Blocks', 'reserved GPU capacity for ML') }}
+    {% for cb in d.capacity_blocks %}
+      {% set used = d.instances|selectattr('capacity_block', 'equalto', cb.id)|list|length %}
+      <div class="mini mb">
+        <div class="row between"><span class="mono small"><b>{{ cb.id }}</b></span>{{ pill('ok' if cb.status == 'active' else 'info', cb.status) }}</div>
+        <div class="xs muted">{{ cb.count }} × {{ cb.type }} ({{ d.types[cb.type].gpu }}) · {{ cb.az }} · {{ cb.start|kst }} → {{ cb.end|kst }}</div>
+        <div class="meter mt-s"><span class="xs">In use</span><span class="xs mono">{{ used }} / {{ cb.count }} instances · {{ used * 8 }} GPUs</span>{{ bar(used / cb.count * 100, warn=85, crit=100) }}</div>
+        <div class="xs muted mt-s">Upfront {{ (cb.upfront_usd * 1392)|krw }} (${{ '{:,.0f}'.format(cb.upfront_usd) }})</div>
+      </div>
+    {% endfor %}
+    <div class="section-title">Instance types</div>
+    <table class="t"><thead><tr><th>Type</th><th>GPU</th><th class="right">$/h</th><th class="right">₩/GPU·h</th></tr></thead><tbody>
+      {% for k, t in d.types.items() %}<tr><td class="mono small">{{ k }}</td><td class="small">{{ t.gpus }} × {{ t.gpu }}</td><td class="right">{{ t.usd_hr }}</td><td class="right">{{ (t.usd_hr / t.gpus * 1392)|krw }}</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+  <div class="panel s-7">
+    {{ head('Utilization & fleet size', '60 min') }}<div class="chart m" id="c-aws"></div>
+    <div class="section-title">Burst jobs</div>
+    <table class="t"><thead><tr><th>Job</th><th>Project</th><th class="right">GPUs</th><th class="right">Instances</th><th>At</th></tr></thead><tbody>
+      {% for b in d.burst %}<tr data-href="/gpu-fleet/job/{{ b.job }}"><td><b class="small">{{ b.name }}</b> <span class="mono xs muted">#{{ b.job }}</span></td><td class="small">{{ b.project }}</td><td class="right">{{ b.gpus }}</td><td class="right">{{ b.instances }}</td><td class="mono small">{{ b.t|kst }}</td></tr>
+      {% else %}<tr><td colspan="5" class="empty">No burst since boot — run the <a class="link" href="/platform/simulation?run=cloud-burst">cloud-burst</a> scenario.</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</div>
+<div class="panel mt flush">
+  {{ head('EC2 instances', d.instances|length ~ ' total · click for detail') }}
+  <div class="table-tools" style="padding:0 16px 10px"><input class="input" placeholder="Filter… (name, type, project, state)" data-filter="#t-ec2"><button class="btn sm" data-export="#t-ec2" data-name="aws-instances">CSV</button></div>
+  <div class="table-wrap"><table class="t" id="t-ec2" data-sortable><thead><tr><th>Instance</th><th>Name</th><th>Type</th><th>Purchase</th><th>Project</th><th>AZ</th><th>State</th><th class="right">GPU util</th><th class="right">HBM</th><th class="right">Network</th><th class="right">₩/h</th><th class="right">Uptime</th></tr></thead><tbody>
+    {% for i in d.instances %}<tr data-href="/cloud/aws/instance/{{ i.id }}"><td class="mono small">{{ i.id }}</td><td><b class="small">{{ i.name }}</b></td><td class="mono small">{{ i.type }}</td><td><span class="tag {{ 'teal' if i.purchase == 'capacity-block' else '' }}">{{ i.purchase }}</span></td><td class="small">{{ i.project }}</td><td class="small muted">{{ i.az }}</td>
+      <td>{{ pill(i.state) }}</td><td class="right">{{ i.util }}%</td><td class="right">{{ i.gpu_mem_pct }}%</td><td class="right">{{ i.net_gbps }} Gb/s</td><td class="right">{{ (i.usd_hr * 1392)|krw }}</td><td class="right">{{ (live.ts - i.launch_t)|dur }}</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C;
+  const [u, n] = await Promise.all([K.series("cloud_gpu_util", { label: "provider", value: "aws", minutes: 60 }), K.series("aws_instance_util", { minutes: 60 })]);
+  const sp = K.spark("sp-util", u.slice(-60), { color: C.teal, unit: "%" });
+  const ch = K.line("c-aws", [{ name: "GPU util %", data: u, color: C.teal, type: "areaspline" }, { name: "instances running", data: n, color: C.steel, yAxis: 1, step: true }], { min: 0, max: 100, y2: "instances", decimals: 1 });
+  Grid.onLive((L) => { const ms = L.ts * 1000; K.push(sp, 0, ms, L.cloud.aws.gpu_util); K.push(ch, 0, ms, L.cloud.aws.gpu_util); });
+})();
+</script>
+{% endblock %}

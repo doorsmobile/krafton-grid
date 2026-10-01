@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import pill, head %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Rack View</h1><p>Floor plan of the four M1 halls — {{ d.total_racks }} racks. Colour by utilization, temperature or power; red outline = failed GPU, amber = throttling or drained nodes. Click a rack for its U-by-U elevation.</p></div>
+  <div class="page-actions"><div class="seg" id="mode"><button class="on" data-m="util">Utilization</button><button data-m="temp">Temperature</button><button data-m="power">Power</button></div></div>
+</div>
+<div class="row wrap mb" style="gap:14px"><div class="scale"><span id="lo">0%</span><span class="ramp" id="ramp"></span><span id="hi">100%</span></div>
+  <div class="legend"><span><i style="background:#0c0c0e;border:1px solid #333"></i>storage / network / k8s</span><span><i style="background:transparent;border:1px dashed #444"></i>reserved</span><span><i style="border:2px solid var(--crit);background:transparent"></i>failed GPU</span><span><i style="border:2px solid var(--warn);background:transparent"></i>throttle / drain</span></div></div>
+{% for h in d.halls %}
+<div class="panel mb">
+  <div class="panel-head"><div><div class="panel-title">{{ h.name }}</div><div class="panel-sub">{{ h.purpose }} · IT {{ h.it_mw|num(2) }} MW</div></div><a class="panel-link" href="/facility/hall/{{ h.id }}">Hall detail →</a></div>
+  <div class="floor">
+    {% for row in h.rows %}
+    <div class="floor-row">
+      <div class="floor-row-label"><b>{{ row.id }}</b>{% if row.supply_c %}<span class="xs muted">{{ row.supply_c|num(1) }} °C</span>{% endif %}{% if row.cdu_status %}<span class="cdu-chip {{ row.cdu_status }}">CDU {{ row.cdu_status }}</span>{% endif %}</div>
+      <div class="floor-racks">
+        {% for r in row.racks %}
+          {% if r.kind == 'gpu' %}
+          <a class="rack-tile gpu {{ "crit" if r.failed else ("warn" if r.throttle or r.drain else "") }}" href="/rack/{{ r.id }}" data-util="{{ r.util }}" data-temp="{{ r.temp }}" data-power="{{ r.kw }}" data-design="{{ r.design_kw }}"
+             title="{{ r.id }} · {{ r.label }} · {{ r.util }}% util · {{ r.temp }} °C max · {{ r.kw }} / {{ r.design_kw }} kW{% if r.throttle %} · {{ r.throttle }} throttling{% endif %}{% if r.failed %} · {{ r.failed }} failed{% endif %}{% if r.drain %} · {{ r.drain }} nodes drained{% endif %}">
+            <b>{{ r.id }}</b><span class="v">{{ r.util|num(0) }}%</span><span class="xs">{{ r.partition }}</span></a>
+          {% elif r.kind == 'reserved' %}
+          <div class="rack-tile reserved" title="{{ r.id }} · reserved for M1 expansion"><b>{{ r.id }}</b><span class="xs">reserved</span></div>
+          {% else %}
+          <a class="rack-tile other" href="/rack/{{ r.id }}" title="{{ r.id }} · {{ r.label }} · {{ r.kw }} kW"><b>{{ r.id }}</b><span class="xs">{{ r.kind }}</span><span class="xs muted">{{ r.kw|num(0) }} kW</span></a>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const S = { util: { lo: 0, hi: 100, u: "%", ramp: "util" }, temp: { lo: 30, hi: 90, u: "°C", ramp: "temp" }, power: { lo: 0, hi: 1, u: "× design", ramp: "power" } };
+  function paint(m) {
+    const s = S[m];
+    document.getElementById("ramp").style.background = HeatGrid.rampCSS(s.ramp);
+    document.getElementById("lo").textContent = s.lo + (m === "power" ? "" : s.u); document.getElementById("hi").textContent = s.hi + " " + s.u;
+    document.querySelectorAll(".rack-tile.gpu").forEach((t) => {
+      const v = m === "power" ? +t.dataset.power / +t.dataset.design : +t.dataset[m];
+      const k = (v - s.lo) / (s.hi - s.lo);
+      t.style.background = HeatGrid.color(s.ramp, k);
+      t.style.color = k > 0.62 ? "#06201c" : "#e5e7eb";
+      t.querySelector(".v").textContent = m === "util" ? Math.round(v) + "%" : m === "temp" ? v.toFixed(0) + "°" : Math.round(+t.dataset.power) + " kW";
+    });
+  }
+  document.querySelectorAll("#mode button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#mode button").forEach((x) => x.classList.toggle("on", x === b)); paint(b.dataset.m); }));
+  paint("util");
+})();
+</script>
+{% endblock %}

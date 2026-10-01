@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, pill, head %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Campus Aerial</h1><p>The {{ d.campus_mw|num(0) }} MW Krafton Grid campus — five 20 MW modules built in phases. Hover a building for live status; click to open it. Outline turns red when that area has a critical alert.</p></div>
+  <div class="page-actions"><div class="seg" id="lbl"><button class="on" data-l="1">Labels on</button><button data-l="0">Labels off</button></div></div>
+</div>
+<div class="g g-4 mb">
+  <div class="panel tight">{{ kpi('Campus capacity', d.campus_mw|num(0), 'MW', '5 modules × 20 MW critical IT', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Live now', d.live.it_mw|num(2), 'MW', 'M1 · Phase 1', live='site.it_mw', fmt='f2', size='s') }}</div>
+  <div class="panel tight">{{ kpi('PUE', d.live.pue|num(3), '', 'M1 · target ' ~ TARGET_PUE, live='site.pue', fmt='f3', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Next RFS', d.modules[1].rfs, '', d.modules[1].id ~ ' · ' ~ d.modules[1].label, size='s') }}</div>
+</div>
+<div class="campus" id="campus">
+  <img src="{{ d.image }}" alt="Krafton Grid campus aerial view" loading="eager">
+  {% for h in d.hotspots %}
+  <a class="hotspot {{ 'crit' if h.level == 'critical' else '' }}" href="{{ h.href }}" data-id="{{ h.id }}" style="left:{{ h.x }}%;top:{{ h.y }}%;width:{{ h.w }}%;height:{{ h.h }}%"
+     data-title="{{ h.title }}" data-lines="{{ h.lines|jsonattr }}" data-level="{{ h.level }}">
+    <span class="hs-tag"><span class="dot {{ h.level|level if h.level != 'idle' else '' }}"></span>{{ h.title.split(' (')[0] }}</span>
+  </a>
+  {% endfor %}
+  <div class="hs-card hide" id="hs-card"></div>
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-8">{{ head('Build-out timeline', 'design → construction → commissioning → live') }}<div class="chart m" id="c-build"></div></div>
+  <div class="panel s-4 flush">
+    {{ head('Modules') }}
+    <table class="t"><thead><tr><th>Module</th><th>Status</th><th class="right">IT MW</th><th>RFS</th></tr></thead><tbody>
+      {% for m in d.modules %}<tr {% if m.status == 'live' %}data-href="/facility"{% else %}data-href="/facility/capacity"{% endif %}><td><b>{{ m.id }}</b> <span class="xs muted">Phase {{ m.phase }}</span></td><td>{{ pill('ok' if m.status == 'live' else ('warning' if m.status == 'construction' else 'idle'), m.status) }}</td><td class="right">{{ m.it_mw|num(0) }}</td><td class="mono small">{{ m.rfs }}</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const wrap = document.getElementById("campus"), card = document.getElementById("hs-card");
+  wrap.querySelectorAll(".hotspot").forEach((h) => {
+    h.addEventListener("mouseenter", () => {
+      const lines = JSON.parse(h.dataset.lines || "[]");
+      card.innerHTML = `<b>${Grid.esc(h.dataset.title)}</b>${lines.map((l) => `<div class="muted">${Grid.esc(l)}</div>`).join("")}<div class="xs faint mt-s">click to open →</div>`;
+      card.classList.remove("hide");
+      const r = h.getBoundingClientRect(), w = wrap.getBoundingClientRect();
+      let left = r.right - w.left + 10; if (left + 240 > w.width) left = r.left - w.left - 250;
+      card.style.left = Math.max(8, left) + "px"; card.style.top = Math.max(8, r.top - w.top) + "px";
+    });
+    h.addEventListener("mouseleave", () => card.classList.add("hide"));
+  });
+  document.querySelectorAll("#lbl button").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll("#lbl button").forEach((x) => x.classList.toggle("on", x === b));
+    wrap.querySelectorAll(".hs-tag").forEach((t) => (t.style.display = b.dataset.l === "1" ? "" : "none"));
+  }));
+  const B = {{ d.buildout|tojson }}, mods = [...new Set(B.map((b) => b[0]))];
+  const col = { Design: GridCharts.C.steel2, Construction: GridCharts.C.amber, Commissioning: GridCharts.C.sky, Live: GridCharts.C.teal };
+  GridCharts.xrange("c-build", mods, B.map(([m, ph, a, b]) => ({ x: Date.parse(a + "-01"), x2: Date.parse(b + "-01"), y: mods.indexOf(m), phase: ph, color: col[ph] })));
+})();
+</script>
+{% endblock %}

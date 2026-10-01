@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, head %}
+{% block content %}
+{% set L = d.live %}
+<div class="page-head">
+  <div><h1>DC Cost</h1><p>Electricity is billed from the live facility load every tick at the KEPCO 산업용(을) 고압C time-of-use rate (season × band), plus demand charge, climate &amp; fuel adjustments, 전력산업기반기금 {{ (d.tariff.fund_rate * 100)|num(1) }}% and VAT {{ (d.tariff.vat * 100)|num(0) }}%. Tax, facility O&amp;M and labor follow the M1 build-out.</p></div>
+  <div class="page-actions"><a class="btn" href="/facility/energy">Energy &amp; ESG</a><a class="btn" href="/cost">Summary</a></div>
+</div>
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('TOU band now', L.rate.band_ko, '', L.rate.krw_kwh ~ ' ₩/kWh · ' ~ L.rate.season, live='cost.rate.band_ko', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Burn rate', L.burn_hr_krw|krw, '/ h', 'at ' ~ L.facility_mw|num(2) ~ ' MW facility', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Electricity today', L.today_power_krw|krw, '', (L.kwh_today|num(0)) ~ ' kWh', live='cost.today_power_krw', fmt='krw', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Energy · month', (L.kwh_month / 1000)|num(0), 'MWh', 'metered this month', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Peak demand', (L.peak_kw_month / 1000)|num(2), 'MW', 'drives ' ~ d.tariff.demand_krw_kw|num(0) ~ ' ₩/kW demand charge', size='s') }}</div>
+  <div class="panel tight">{{ kpi('MTD · DC', d.current.dc_total|krw, '', 'power ' ~ d.current.dc.power|krw, size='s') }}</div>
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-8">{{ head('Rate & load · 24 h', 'TOU ₩/kWh (step) vs facility MW') }}<div class="chart m" id="c-tou"></div></div>
+  <div class="panel s-4 flush">
+    {{ head('KEPCO tariff', '산업용(을) 고압C · 선택 II · ₩/kWh') }}
+    <table class="t"><thead><tr><th>Band</th><th class="right">Summer</th><th class="right">Spring/Fall</th><th class="right">Winter</th></tr></thead><tbody>
+      {% for t in d.tariff.tou %}<tr class="{{ 'focus' if t.band == L.rate.band else '' }}"><td><b class="small">{{ t.ko }}</b> <span class="xs muted">{{ t.band }}</span></td><td class="right">{{ t.rates.summer }}</td><td class="right">{{ t.rates.spring_fall }}</td><td class="right">{{ t.rates.winter }}</td></tr>{% endfor %}
+    </tbody></table>
+    <div class="kv" style="padding:10px 16px 14px"><span>Demand charge</span><span>{{ '{:,}'.format(d.tariff.demand_krw_kw) }} ₩/kW·month</span><span>Climate / fuel adj.</span><span>{{ d.tariff.climate }} / {{ d.tariff.fuel_adj }} ₩/kWh</span><span>Fund · VAT</span><span>{{ (d.tariff.fund_rate * 100)|num(1) }}% · {{ (d.tariff.vat * 100)|num(0) }}%</span></div>
+  </div>
+</div>
+<div class="panel mt">{{ head('DC OPEX by month', '전기요금 · 세금 · 관리비 · 인건비') }}<div class="chart m" id="c-dc"></div></div>
+<div class="panel mt flush">
+  <div class="table-wrap"><table class="t"><thead><tr><th>Month</th>{% for l in d.lines %}<th class="right">{{ l.ko }} <span class="xs muted">{{ l.en }}</span></th>{% endfor %}<th class="right">Total</th><th class="right">kWh</th><th class="right">₩/kWh eff.</th></tr></thead><tbody>
+    {% for r in d.months|reverse %}<tr><td class="mono">{{ r.month }}{% if r.partial %} <span class="tag teal">MTD</span>{% endif %}</td>{% for l in d.lines %}<td class="right">{{ r.dc[l.id]|krw }}</td>{% endfor %}<td class="right"><b>{{ r.dc_total|krw }}</b></td><td class="right">{{ '{:,.0f}'.format(r.kwh or 0) }}</td><td class="right">{{ (r.dc.power / r.kwh)|num(1) if r.kwh else '—' }}</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C, M = {{ d.months|tojson }};
+  const [rate, mw] = await Promise.all([K.series("cost_rate_24h", { minutes: 1440 }), K.series("site_facility_mw_24h", { minutes: 1440 })]);
+  K.line("c-tou", [{ name: "₩/kWh", data: rate, step: "left", color: C.amber }, { name: "facility MW", data: mw, color: C.teal, yAxis: 1, type: "areaspline" }], { y2: "MW", decimals: 1 });
+  const kf = function () { return `<span style="color:${this.color}">●</span> ${this.series.name} <b>${Grid.fmt.krw(this.y)}</b><br>`; };
+  K.columns("c-dc", M.map((m) => m.month + (m.partial ? " (MTD)" : "")), [
+    { name: "전기요금", data: M.map((m) => m.dc.power), color: C.teal }, { name: "세금", data: M.map((m) => m.dc.tax), color: C.steel2 },
+    { name: "관리비", data: M.map((m) => m.dc.management), color: C.steel }, { name: "인건비", data: M.map((m) => m.dc.labor), color: C.violet }],
+    { stacking: "normal", pointFormatter: kf, yFormatter: (v) => Grid.fmt.krw(v) });
+})();
+</script>
+{% endblock %}

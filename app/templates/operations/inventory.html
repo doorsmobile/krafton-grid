@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, pill, head %}
+{% block content %}
+{% set h = d.headline %}
+<div class="page-head">
+  <div><h1>Inventory</h1><p>Every managed asset on campus — substation to GPU node — with live status and a link to its detail page. Filter by domain, search, or export to CSV for the CMDB.</p></div>
+  <div class="page-actions"><a class="btn" href="/rack-view">Rack View</a><button class="btn" data-export="#t-inv" data-name="grid-inventory">Export CSV</button></div>
+</div>
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('Assets', '{:,}'.format(d.total), '', d.counts|length ~ ' domains', size='s') }}</div>
+  <div class="panel tight">{{ kpi('GPUs', '{:,}'.format(h.gpus), '', 'NVIDIA B300 · ' ~ h.nodes ~ ' HGX nodes', size='s') }}</div>
+  <div class="panel tight">{{ kpi('GPU racks', h.gpu_racks, '', 'liquid-cooled · halls A/B', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Storage', h.storage_pb, 'PB', 'IBM Storage Scale', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Switches', h.eth_switches + h.ib_switches, '', h.eth_switches ~ ' Ethernet · ' ~ h.ib_switches ~ ' InfiniBand', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Kubernetes', h.k8s_nodes, 'nodes', '3 control plane · 27 workers', size='s') }}</div>
+</div>
+<div class="panel mt flush">
+  <div class="table-tools" style="padding:14px 16px 10px">
+    <input class="input" style="max-width:360px" placeholder="Search id, model, vendor, location…" data-filter="#t-inv">
+    <div class="seg" id="dom"><button class="on" data-d="">All · {{ '{:,}'.format(d.total) }}</button>{% for k, v in d.counts.items() %}<button data-d="{{ k }}">{{ k }} · {{ v }}</button>{% endfor %}</div>
+  </div>
+  <div class="table-wrap scroll-l"><table class="t" id="t-inv" data-sortable><thead><tr><th>Asset</th><th>Domain</th><th>Kind</th><th>Vendor</th><th>Model</th><th>Location</th><th>Status</th></tr></thead><tbody>
+    {% for i in d['items'] %}<tr data-href="{{ i.href }}" data-dom="{{ i.domain }}"><td class="mono small"><b>{{ i.id }}</b></td><td class="small">{{ i.domain }}</td><td class="small muted">{{ i.kind }}</td><td class="small">{{ i.vendor or '—' }}</td><td class="small">{{ i.model }}</td><td class="small muted">{{ i.location or '—' }}</td><td>{{ pill(i.status) }}</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll("#dom button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("#dom button").forEach((x) => x.classList.toggle("on", x === b));
+  document.querySelectorAll("#t-inv tbody tr").forEach((tr) => tr.classList.toggle("hide", !!b.dataset.d && tr.dataset.dom !== b.dataset.d));
+}));
+</script>
+{% endblock %}

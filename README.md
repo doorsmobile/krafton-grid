@@ -1,149 +1,105 @@
-# Krafton Grid — 100 MW AIDC DCIM Simulation
+# Krafton Grid · AIDC DCIM — Claude edition
 
-**Package:** `dcim-cursor-v3.1` · local path `/Users/logan/code/dcim-cursor-v3.1`  
-**Release:** <!-- RELEASE:START --> dcim-cursor-v3.1 <!-- RELEASE:END -->  
-**Version:** <!-- VERSION:START --> 3.1 <!-- VERSION:END -->
+Release <!-- RELEASE:START --> grid-claude-v2.0 <!-- RELEASE:END --> · Version <!-- VERSION:START --> 2.0 <!-- VERSION:END --> · port **8003**
 
-Python / Highcharts / Redis based **AI Data Center Infrastructure Management** simulator for a modular Krafton Grid campus (first center **20 MW**, full site **100 MW**).
+A digital twin and operations console for the Krafton Grid 100 MW AI data center campus (5 × 20 MW modules, M1 live).
+Facility (2N power, N+1 liquid-first cooling), 5,000 NVIDIA B300 GPUs under Slurm + CubeFlow, IBM Storage Scale 100 PB,
+Arista + Quantum-2 fabrics, Dell Kubernetes, AWS → GCP → NHN cloud, KEPCO TOU cost and FY budget — computed every 2 s
+from physical and operational models, streamed live to every page, and queryable by API, PromQL, LogQL or Claude.
 
-## Brand
+The canonical spec is [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) (also at **Platform → Requirements**).
 
-- Name: **Krafton Grid**
-- CI: Krafton black `#000000` + brand red `#F9423A`
-- Marks: `app/static/brand/` (SVG mark, wordmark, icon, favicons)
-
-See `VERSIONING.md` for bump / sync workflow.
-
-## What you get
-
-### Campus Aerial
-- Bird's-eye **campus master plan** under Main: Phase 1 active · Phases 2–5 future · Operation Room / Labs / Storage
-- Download PNG · open full size
-
-### Facility
-- **Overview** `/facility` — Power · Cooling · Halls · Modules panels; click → detail pages
-- Power / Cooling / Capacity full-list pages under Facility
-- Live **Main** dashboard: **3×3** Facility · AI · Cloud cards → overview pages
-- Dark black canvas · graphite cards · teal/gray charts (red = critical only)
-
-### IT Cluster (Facility + IT unified)
-- **GPU Monitoring** — Datadog-style Fleet Explorer (funnel · cost · OOTB monitors · provisioning/performance · device detail)
-- **Storage** — IBM Storage **100 PB** · clusters + Top Talkers (IOPS) + cluster **detail pages**
-- **Kubernetes** — Dell PowerEdge × **30** · hot nodes + node **detail pages**
-- Shared UX: overview panels → click opens a **new page** (not popup/modal)
-
-### Network (Arista-first)
-- Single **IT Cluster → Network** overview: uplink · talkers · topology · inventory
-- Click row/node → `/network/device/{id}` detail page (interface bps / errors / discards + 1h chart)
-- Package: `app/sim/network/` · routes: `app/web/routers/network.py`
-
-### GPU Platform
-- **Overview** — console, projects, notices, live GPU util
-- **Workloads** — jobs/schedule · partitioning · RCS · custom images
-- **Ops** — projects/quota · nodes · resource monitor · ecosystem · usage reports
-
-### Cloud
-- **Overview** `/cloud` — AWS / GCP / NHN Top Talkers; click → instance/bucket/disk detail pages
-- Order fixed: **AWS** GPUaaS → **GCP** Storage → **NHN** GPUaaS (API demo catalogs)
-
-### Cost
-- **Summary** — DC+Cloud KPIs, MoM, YTD, 12-month stacked trend
-- **DC** — 전기요금 / 세금 / 관리비 / 인건비 + monthly line charts
-- **Cloud** — AWS / GCP / NHN + monthly provider charts
-
-### Observability
-- Hub inspired by CoreWeave Observe™: **Explore · Metrics (PromQL) · Logs (LogQL) · Telemetry Relay · Resource Usage · Mission Control Agent**
-- Operators use pages; developers consume the same telemetry via JSON APIs
-- **API Catalog** `/developers/api` — every UI page mapped to an API (`GET /api/catalog`)
-
-### Operations & Platform
-- Unified **Inventory** + **Rack View** floor map
-- Alarm console with **Slack** webhook/OAuth + generic webhook fan-out (`/alerts/integrations` · `/alerts/config`)
-- **Vendors & API** (facility + IT + AWS → GCP → NHN)
-- **Tech Spec** documentation page
-- **Requirements** (`docs/REQUIREMENTS.md`) — canonical input/prompt spec, view + download
-- **Simulation** console: modes, alert injection, Redis JSON export
-
-## Stack
-
-| Layer | Tech |
-|-------|------|
-| API / UI | FastAPI + Jinja2 |
-| Charts | Highcharts (local vendor) |
-| State | Redis |
-| Sim engine | Background Python thread writing live + series keys |
-
-## Run locally (Mac)
-
-자세한 절차: [`MAC_INSTALL.md`](MAC_INSTALL.md)
+## Run (macOS)
 
 ```bash
-cd /Users/logan/code/dcim-cursor-vX.Y
-./run_mac.sh          # start/restart on :8002
-./run_mac.sh status    # health check
-./run_mac.sh stop      # stop
+cd /Users/logan/Code/grid-claude-v2.0 && ./run_mac.sh
 ```
 
-Open [http://127.0.0.1:8002](http://127.0.0.1:8002). Logs: `.run/uvicorn.log` · PID: `.run/uvicorn.pid`
+Open http://127.0.0.1:8003. The launcher creates `.venv`, installs `requirements.txt`, makes sure Redis is running, then starts
+two background processes:
 
-Agent sync ships a tarball + download URL via `bash scripts/sync_local.sh`.
+```
+collector  (python -m app.collector)  ──write──▶  Redis dcim:aidc100:claude:*  ◀──read──  web  (uvicorn app.main:app)
+```
 
-### Agent ports (Mac 동시 실행)
+The collector gathers state (today: the physics simulator as demo data), aggregates it into one read model per page and per
+detail entity, and publishes everything to Redis every tick. The web process reads **only** Redis — pages, JSON APIs, the SSE
+stream and the Mission Control agent — and sends every action (job submit, drain, scenario, alert ack, budget approval …) to the
+collector over a Redis command bus. Without Redis the web process runs the collector in-process on an in-memory store; the read
+path is identical. Why and how: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
-| Agent | Port |
-|-------|------|
-| ChatGPT | **8001** |
-| Cursor (this repo default) | **8002** |
-| Claude | **8003** |
+| Command | |
+|---|---|
+| `./run_mac.sh` | start / restart both processes in the background |
+| `./run_mac.sh web` | restart only the web process — the simulation, alerts and budget state keep running |
+| `./run_mac.sh status` | pids, health, collector heartbeat |
+| `./run_mac.sh logs` | follow `.run/uvicorn.log` and `.run/collector.log` |
+| `./run_mac.sh stop` | stop both |
 
-### Manual / cloud
+Python changes need a restart (web-only changes: `./run_mac.sh web`); template and static changes are picked up on reload.
+
+## Configuration
+
+| Variable | Default | |
+|---|---|---|
+| `APP_PORT` | `8003` | ChatGPT 8001 · Cursor 8002 · **Claude 8003** |
+| `REDIS_URL` / `REDIS_PREFIX` | `redis://127.0.0.1:6379/0` / `dcim:aidc100:claude` | the read-model store |
+| `GRID_STORE` | `auto` | `redis` · `memory` (no Redis) |
+| `GRID_COLLECTOR` | `auto` | use a running collector, else start one inside the web process · `embedded` · `external` |
+| `ENTITY_EVERY_TICKS` / `HEAVY_EVERY_TICKS` | `5` / `3` | publish cadence of detail entities / large list views |
+| `ANTHROPIC_API_KEY` | — | enables Claude in Mission Control (otherwise the built-in analyst answers) |
+| `MISSION_CONTROL_MODEL` / `MISSION_CONTROL_MODE` | `claude-opus-5-5` / `auto` | `auto` · `claude` · `offline` |
+| `ALERTS_LIVE_DELIVERY` + `SLACK_WEBHOOK_URL` | off | alerts are rendered and logged as dry-run until both are set |
+| `AUTH_ENABLED` + `AUTH_USERNAME` / `AUTH_PASSWORD` | off | optional session login for shared deployments |
+| `SIM_TICK_SEC` / `SIM_SEED` | `2.0` / `20260930` | simulation cadence and seed |
+
+## Menu
+
+```
+Main · Campus Aerial
+Facility ………… Overview / Power / Cooling / Capacity / Energy & ESG
+IT Cluster …… GPU Monitoring / Storage / Network / Kubernetes
+GPU Platform … Overview / Workloads / Ops
+Cloud …………… Overview / AWS GPUaaS / GCP Storage / NHN GPUaaS
+Observability … Overview / Explore / Metrics / Logs / Telemetry Relay / Resource Usage / Mission Control
+Operations …… Inventory / Rack View / Alerts / Slack·Webhooks / Alert Config
+Developers …… API Catalog
+Platform ……… Tech Spec / Vendors & API / Simulation / Requirements
+Cost …………… Summary / DC / Cloud / Budget
+```
+
+Every page has a JSON twin — see **Developers → API Catalog** or `GET /api/catalog`; OpenAPI at `/docs`.
+
+## What to try first
+
+1. **Platform → Simulation** → start *CDU pump failure · Row A2*. Watch row A2 coolant climb, the spare CDU take over,
+   GPUs throttle, and four alerts correlate into one incident on **Operations → Alerts**.
+2. **Observability → Mission Control** → ask “지금 캠퍼스에 문제 있어?” while the scenario runs.
+3. **GPU Platform** → submit a 64-node pretrain job and follow it into the queue, onto nodes, or out to AWS.
+4. **Cost → Budget** → raise a 예산 증액 request for an item that is forecast over budget and approve it through the chain.
+5. Press **⌘K** anywhere and type a rack (`R12`), node (`kg-r07-n03`) or device (`CDU-B3`).
+
+## Layout
+
+```
+app/collector/  collector process — lease, tick → publish, command bus handlers
+app/readmodel/  aggregation — collected state → one dict per page / detail entity (runs in the collector only)
+app/store.py    Redis contract (key layout, lease, command bus) + in-memory fallback
+app/sim/        demo collector source — topology, fleet physics + scheduler, facility, IT infra, cloud, cost/budget,
+                alerts/incidents, scenarios, TSDB + PromQL/LogQL, engine
+app/web/        read path (data.py), Mission Control agent, nav, templating, routers per domain
+app/templates   Jinja pages · app/static  grid.css · grid.js (one SSE per browser) · charts.js · heat.js · local Highcharts 13
+docs/           REQUIREMENTS.md (canonical) · PERFORMANCE.md (load-time analysis & data path)
+scripts/        bump_version.py · smoke.py
+tests/          pytest suite (incl. an architecture guard: the web tier must read only the store)
+```
+
+## Tests
 
 ```bash
-redis-server --daemonize yes
-python3 -m pip install -r requirements.txt
-python3 -m app.main
+cd /Users/logan/Code/grid-claude-v2.0 && .venv/bin/python -m pytest -q
 ```
 
-### Environment
+## Versioning
 
-| Variable | Default | Meaning |
-|----------|---------|---------|
-| `REDIS_URL` | `redis://127.0.0.1:6379/0` | Redis connection |
-| `APP_PORT` | `8002` | HTTP port (Cursor). ChatGPT=8001, Claude=8003 |
-| `SIM_INTERVAL_SEC` | `2.0` | Tick interval |
-| `AUTH_PROVIDER` | `local` | Auth backend (`local` now · `krafton` reserved for SSO) |
-| `AUTH_USERNAME` | `krafton` | Local demo ID |
-| `AUTH_PASSWORD` | `krafton-grid` | Local demo password |
-| `SESSION_SECRET` | (dev default) | Cookie signing secret — **set on Render** |
-| `SESSION_HTTPS_ONLY` | `0` | Set `1` on HTTPS (Render) |
-
-Login: `/login` · Logout: `/logout` · module: `app/auth/` (swap provider for Krafton account system later).
-
-## Useful APIs
-
-- `GET /api/catalog` — full page ↔ API map (developers)
-- `GET /api/observability` — observability hub JSON
-- `POST /api/observability/metrics/query` — PromQL-style
-- `POST /api/observability/logs/query` — LogQL-style
-- `GET /api/observability/relay` · `/usage` · `POST /api/observability/agent`
-- `GET /api/alerts` · `/api/alerts/integrations` · `/api/alerts/config` · `/api/alerts/deliveries`
-- `GET /api/live` — current snapshot (facility + IT metrics)
-- `GET /api/facility` · `/api/facility/power` · `/cooling` · `/capacity` · stage/hall detail
-- `GET /api/it` — IT fabric inventory + live slice
-- `GET /api/cost` · `/api/cost/dc` · `/api/cost/cloud`
-- `GET /api/cloud` · `/api/cloud/aws|gcp|nhn` (+ instance/bucket/disk detail)
-- `GET /api/gpu-platform` — GPU Platform bundle (`/api/fractos` alias)
-- `GET /api/series/{metric}` — chart series
-- `GET /api/vendors` — vendor catalog + health
-- `GET /api/vendor/{id}/sample` — simulated vendor API probe
-- `POST /api/sim/mode` — `{ "mode": "normal|stress|maintenance|failover" }`
-- `GET /api/sim/export.json` — full simulation dump
-- `GET /platform/requirements.md` — download Requirements prompt MD
-
-## Site model (summary)
-
-- Full site / investment envelope: **100 MW** (5 × **20 MW** modular centers)
-- First modular center (**M1**): **20 MW** online
-- M2 commissioning · M3–M5 planned
-- Topology: **Modular blocks / 2N power / N+1 cooling / liquid-first**
-- Target PUE: **1.18**
+`X.Y` with a single-digit minor (1.9 → 2.0). See [VERSIONING.md](VERSIONING.md).

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, chead, head %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Cloud Cost</h1><p>AWS → GCP → NHN, in that order everywhere. Live burn comes from the running instances, buckets and disks; history is the monthly invoice. Burst jobs on the AWS Capacity Block are prepaid — idle capacity inside the block is not extra spend.</p></div>
+  <div class="page-actions"><a class="btn" href="/cloud">Cloud operations</a><a class="btn" href="/cost/budget">Budget</a></div>
+</div>
+<div class="g g-3">
+  {% for p in d.providers %}
+  <a class="panel" href="/cloud/{{ p.id }}">
+    {{ chead(p.name, p.role, 'Operations') }}
+    <div class="split">
+      <div><div class="xs muted">Burn rate</div><div class="kpi-value xs"><span data-live="cloud.{{ p.id }}.cost_hr_krw" data-fmt="krw">{{ p.cost_hr_krw|krw }}</span><span class="unit">/ h</span></div></div>
+      <div><div class="xs muted">Today</div><div class="kpi-value xs">{{ p.today_krw|krw }}</div></div>
+    </div>
+    <div class="kv mt"><span>MTD</span><span>{{ d.current.cloud[p.id]|krw }}</span><span>{{ d.last_full.month }}</span><span>{{ d.last_full.cloud[p.id]|krw }}</span>
+      <span>Forecast · month</span><span>{{ (d.current.cloud[p.id] / ([d.current.month_frac, 0.0005]|max))|krw }}</span></div>
+  </a>
+  {% endfor %}
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-8">{{ head('Monthly cloud spend', 'stacked · AWS → GCP → NHN') }}<div class="chart m" id="c-m"></div></div>
+  <div class="panel s-4">{{ head('Burn rate · 24 h', 'total ₩/h') }}<div class="chart m" id="c-b"></div></div>
+</div>
+<div class="panel mt flush">
+  <table class="t"><thead><tr><th>Month</th><th class="right">AWS</th><th class="right">GCP</th><th class="right">NHN</th><th class="right">Total</th><th class="right">Share of all OPEX</th></tr></thead><tbody>
+    {% for r in d.months|reverse %}<tr><td class="mono">{{ r.month }}{% if r.partial %} <span class="tag teal">MTD</span>{% endif %}</td><td class="right">{{ r.cloud.aws|krw }}</td><td class="right">{{ r.cloud.gcp|krw }}</td><td class="right">{{ r.cloud.nhn|krw }}</td><td class="right"><b>{{ r.cloud_total|krw }}</b></td><td class="right">{{ (r.cloud_total / r.total * 100)|num(1) }}%</td></tr>{% endfor %}
+  </tbody></table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C, M = {{ d.months|tojson }};
+  const kf = function () { return `<span style="color:${this.color}">●</span> ${this.series.name} <b>${Grid.fmt.krw(this.y)}</b><br>`; };
+  K.columns("c-m", M.map((m) => m.month.slice(2) + (m.partial ? "*" : "")), [{ name: "AWS", data: M.map((m) => m.cloud.aws), color: C.teal }, { name: "GCP", data: M.map((m) => m.cloud.gcp), color: C.steel },
+    { name: "NHN", data: M.map((m) => m.cloud.nhn), color: C.violet }], { stacking: "normal", pointFormatter: kf, yFormatter: (v) => Grid.fmt.krw(v) });
+  const b = await K.series("cloud_cost_hr_24h", { minutes: 1440 });
+  K.line("c-b", [{ name: "₩/h", data: b, type: "areaspline", color: C.teal }], { legend: false, pointFormatter: kf, yFormatter: (v) => Grid.fmt.krw(v), min: 0 });
+})();
+</script>
+{% endblock %}

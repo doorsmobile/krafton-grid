@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set x = d.disk %}
+<div class="page-head">
+  <div><h1 class="row"><span class="mono">{{ x.name }}</span> {{ pill('ok', x.status) }}</h1><p>{{ x.type }} · {{ x.zone }} · attached to <span class="mono">{{ x.attached }}</span></p></div>
+  <div class="page-actions"><a class="btn" href="/cloud/gcp">GCP storage</a></div>
+</div>
+<div class="g g-4">
+  <div class="panel tight">{{ kpi('Provisioned', (x.size_gb / 1000)|num(0), 'TB', x.type, size='s') }}</div>
+  <div class="panel tight">{{ kpi('Used', x.used_pct|num(1), '%', ((x.size_gb * x.used_pct / 100000)|num(1)) ~ ' TB', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Throughput', '{:,.0f}'.format(x.mbps), 'MB/s', 'limit ' ~ '{:,}'.format(x.mbps_limit), size='s') }}</div>
+  <div class="panel tight">{{ kpi('IOPS', '{:,.0f}'.format(x.iops) if x.iops_limit else '—', '', 'limit ' ~ ('{:,}'.format(x.iops_limit) if x.iops_limit else 'n/a (throughput-provisioned)'), size='s') }}</div>
+</div>
+<div class="panel mt">
+  {{ head('Headroom') }}
+  <div class="meter mb"><span class="small">Capacity</span><span class="mono small">{{ x.used_pct|num(1) }}%</span>{{ bar(x.used_pct, warn=85, crit=95, size='lg') }}</div>
+  <div class="meter mb"><span class="small">Throughput vs provisioned</span><span class="mono small">{{ (x.mbps / x.mbps_limit * 100)|num(1) }}%</span>{{ bar(x.mbps / x.mbps_limit * 100, size='lg') }}</div>
+  {% if x.iops_limit %}<div class="meter"><span class="small">IOPS vs provisioned</span><span class="mono small">{{ (x.iops / x.iops_limit * 100)|num(1) }}%</span>{{ bar(x.iops / x.iops_limit * 100, size='lg') }}</div>{% endif %}
+</div>
+{% endblock %}

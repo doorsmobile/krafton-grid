@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, pill, head %}
+{% block content %}
+{% set b = d.bucket %}
+<div class="page-head">
+  <div><h1 class="row"><span class="mono">gs://{{ b.name }}</span> <span class="tag teal">{{ b['class'] }}</span></h1><p>{{ b.purpose }} · {{ b.location }}</p></div>
+  <div class="page-actions"><a class="btn" href="/cloud/gcp">All buckets</a></div>
+</div>
+<div class="g g-5">
+  <div class="panel tight">{{ kpi('Size', b.size_tb|num(1), 'TB', b.objects_m|num(1) ~ ' M objects', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Class A ops', '{:,.0f}'.format(b.ops_a_s), '/s', 'writes · lists', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Class B ops', '{:,.0f}'.format(b.ops_b_s), '/s', 'reads', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Ingress / egress', b.ingress_gbps ~ ' / ' ~ b.egress_gbps, 'Gb/s', 'via Cloud Interconnect', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Storage cost', d.monthly_krw|krw, '/ month', 'at-rest only', size='s') }}</div>
+</div>
+<div class="g g-2 mt">
+  <div class="panel">
+    {{ head('Configuration') }}
+    <div class="kv"><span>Location</span><span>{{ b.location }}</span><span>Default class</span><span>{{ b['class'] }}</span><span>Versioning</span><span>{{ 'enabled' if 'ckpt' in b.name or 'registry' in b.name else 'disabled' }}</span>
+      <span>Encryption</span><span>CMEK · kg-kms-apne3</span><span>Public access</span><span>prevented</span><span>Retention</span><span>{{ '3650 days (lock)' if b['class'] == 'ARCHIVE' else '—' }}</span></div>
+  </div>
+  <div class="panel">
+    {{ head('Lifecycle rules') }}
+    <table class="t"><thead><tr><th>Action</th><th class="right">Age (days)</th></tr></thead><tbody>{% for r in d.lifecycle %}<tr><td>{{ r.action }}</td><td class="right">{{ r.age_days }}</td></tr>{% endfor %}</tbody></table>
+  </div>
+</div>
+{% endblock %}

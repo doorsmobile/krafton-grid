@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set dv = d.device %}
+<div class="page-head">
+  <div><h1 class="row"><span class="mono">{{ dv.id }}</span> {{ pill(dv.status) }}</h1><p>{{ dv.vendor }} {{ dv.model }} · {{ dv.fabric }} {{ dv.tier }}{% if dv.role %} · {{ dv.role }}{% endif %} · rack {{ dv.rack }} · {{ dv.ports }} × {{ dv.speed_g }}G{% if d.serves %} · serves {{ d.serves|join(', ') }}{% endif %}</p></div>
+  <div class="page-actions"><a class="btn" href="/network">← Network</a><a class="btn" href="/observability/logs?q={{ ('{service=\"' ~ ('ufm' if dv.fabric == 'infiniband' else 'arista-eos') ~ '\"} |= \"' ~ dv.id ~ '\"')|urlencode }}">Logs</a></div>
+</div>
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('Utilization', dv.util_pct, '%', '', size='s') }}</div>
+  <div class="panel tight">{{ kpi('In', dv.in_gbps|num(0), 'Gb/s', '', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Out', dv.out_gbps|num(0), 'Gb/s', '', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Errors', '{:,}'.format(dv.errors), '', 'symbol err rate ' ~ ('%.1e'|format(dv.err_rate)), size='s', cls='t-crit' if dv.links_down else '') }}</div>
+  <div class="panel tight">{{ kpi('Discards', '{:,}'.format(dv.discards), '', 'counter since boot', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Health', dv.temp_c, '°C', 'CPU ' ~ dv.cpu_pct ~ '% · up ' ~ dv.uptime_d ~ ' d · ' ~ dv.links_down ~ ' links down', size='s') }}</div>
+</div>
+<div class="g g-2 mt">
+  <div class="panel">{{ head('Traffic', 'Gb/s · 60 min') }}<div class="chart m" id="c-traffic"></div></div>
+  <div class="panel">{{ head('Errors & discards', 'Δ per 10 s · 60 min') }}<div class="chart m" id="c-err"></div></div>
+</div>
+<div class="panel flush mt">
+  {{ head('Interfaces', dv.ports ~ ' ports · bps · errors · discards') }}
+  <div class="table-tools" style="padding:0 16px"><input class="input" data-filter="t-if" placeholder="filter interfaces…"><button class="btn sm" data-export="t-if" data-name="{{ dv.id }}-interfaces">Export CSV</button></div>
+  <div class="table-wrap scroll"><table class="t" id="t-if" data-sortable><thead><tr><th>Interface</th><th>Role</th><th>Peer</th><th class="right">Speed</th><th>Status</th><th class="right">In</th><th class="right">Out</th><th>Util</th><th class="right">Errors</th><th class="right">Discards</th></tr></thead><tbody>
+    {% for i in d.interfaces %}<tr class="{{ 'crit' if i.status == 'down' and i.role == 'uplink' else '' }}"><td class="mono">{{ i.name }}</td><td>{{ i.role }}</td><td class="mono small">{% if i.peer.startswith('eth-') or i.peer.startswith('ib-') %}<a class="link" href="/network/device/{{ i.peer }}">{{ i.peer }}</a>{% else %}{{ i.peer }}{% endif %}</td>
+      <td class="right">{{ i.speed_g }}G</td><td>{{ pill(i.status) }}</td><td class="right" data-v="{{ i.in_bps }}">{{ (i.in_bps / 1e9)|num(1) }} Gb/s</td><td class="right" data-v="{{ i.out_bps }}">{{ (i.out_bps / 1e9)|num(1) }} Gb/s</td>
+      <td><div class="cell-bar">{{ bar(i.util_pct) }}<span class="xs muted">{{ i.util_pct }}%</span></div></td><td class="right">{{ i.errors }}</td><td class="right">{{ i.discards }}</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C, col = {{ d.col }};
+  const [i, o, e, dis] = await Promise.all(["net_device_in_gbps", "net_device_out_gbps", "net_device_errors_total", "net_device_discards_total"].map((m) => K.series(m, { col, minutes: 60 })));
+  K.area("c-traffic", [{ name: "in", data: i }, { name: "out", data: o, color: C.steel }], { decimals: 0, unit: "Gb/s" });
+  const delta = (pts) => pts.slice(1).map((p, k) => [p[0], Math.max(0, p[1] - pts[k][1])]);
+  K.line("c-err", [{ name: "errors", data: delta(e), color: C.amber, type: "column" }, { name: "discards", data: delta(dis), color: C.steel, type: "column" }], { decimals: 0, min: 0 });
+})();
+</script>
+{% endblock %}

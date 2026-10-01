@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import head, icon %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Metrics</h1><p>PromQL-style queries over the Grid TSDB: selectors (<code>=</code> <code>!=</code> <code>=~</code> <code>!~</code>), <code>sum/avg/max/min/count by</code>, <code>topk/bottomk</code>, <code>rate/irate/increase/delta</code>, <code>*_over_time</code> and arithmetic between series and scalars. ⌘/Ctrl + Enter runs the query.</p></div>
+  <div class="page-actions"><a class="btn" href="/observability/explore">Explore</a><a class="btn" href="/observability/logs">Logs</a></div>
+</div>
+<div class="panel">
+  <div class="row" style="gap:8px;align-items:stretch">
+    <textarea class="input mono grow" id="q" rows="2" spellcheck="false" placeholder="e.g. topk(5, rack_temp_max_c)" style="min-height:52px;resize:vertical">{{ q }}</textarea>
+    <div class="col" style="gap:6px">
+      <select class="input" id="win">{% for m, lab in [(5,'5 m'),(15,'15 m'),(60,'1 h'),(360,'6 h'),(1440,'24 h')] %}<option value="{{ m }}" {{ 'selected' if m == 15 else '' }}>{{ lab }}</option>{% endfor %}</select>
+      <button class="btn teal" id="run">{{ icon('play') }} Run</button>
+    </div>
+  </div>
+  <div class="row wrap mt-s" style="gap:6px">{% for lab, ex in d.examples %}<button class="chip" data-q="{{ ex }}">{{ lab }}</button>{% endfor %}
+    <label class="row xs muted" style="margin-left:auto;gap:6px"><button class="switch" id="live" aria-label="auto refresh"></button>auto-refresh 5 s</label></div>
+</div>
+<div class="panel mt">
+  <div class="row between"><div class="panel-title" id="r-title">Result</div><div class="xs muted mono" id="r-meta"></div></div>
+  <div id="r-err"></div>
+  <div class="chart l" id="c-q"></div>
+  <div class="table-wrap scroll-s mt"><table class="t" id="t-q"><thead><tr><th>Series</th><th class="right">Last</th><th class="right">Min</th><th class="right">Max</th><th class="right">Avg</th></tr></thead><tbody></tbody></table></div>
+</div>
+<div class="panel mt flush">
+  {{ head('Metric catalog', d.catalog|length ~ ' metrics · click to query') }}
+  <div class="table-tools" style="padding:0 16px 10px"><input class="input" placeholder="Filter metrics…" data-filter="#t-cat"></div>
+  <div class="table-wrap scroll-s"><table class="t" id="t-cat" data-sortable><thead><tr><th>Metric</th><th>Help</th><th>Labels</th><th class="right">Series</th><th>Tier</th><th class="right">Resolution</th><th class="right">Retention</th><th>Unit</th></tr></thead><tbody>
+    {% for m in d.catalog %}<tr class="pick" data-metric="{{ m.name }}" style="cursor:pointer"><td class="mono small"><b>{{ m.name }}</b></td><td class="small muted">{{ m.help }}</td><td class="xs mono muted">{{ m.labels|join(', ') or '—' }}</td><td class="right">{{ '{:,}'.format(m.series) }}</td><td><span class="tag">{{ m.tier }}</span></td><td class="right">{{ m.resolution_s }} s</td><td class="right">{{ (m.retention_points * m.resolution_s)|dur }}</td><td class="small muted">{{ m.unit }}</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const K = GridCharts, $ = (id) => document.getElementById(id);
+  const lab = (m) => { const n = m.__name__ || ""; const r = Object.entries(m).filter(([k]) => k !== "__name__").map(([k, v]) => `${k}="${v}"`).join(", "); return r ? `${n}{${r}}` : n || "value"; };
+  let chart = null, timer = null;
+  async function run() {
+    const q = $("q").value.trim(); if (!q) return;
+    const u = new URL(location.href); u.searchParams.set("q", q); history.replaceState(null, "", u);
+    $("r-err").innerHTML = ""; const t0 = performance.now();
+    try {
+      const r = await Grid.postJSON("/api/observability/metrics/query", { query: q, window_minutes: +$("win").value, max_series: 40 });
+      const ms = Math.round(performance.now() - t0);
+      if (r.resultType === "scalar") { $("r-meta").textContent = `scalar · ${ms} ms`; $("c-q").innerHTML = `<div class="kpi-value" style="padding:30px">${Grid.fmt.num(r.result, 4)}</div>`; chart = null; return; }
+      $("r-meta").textContent = `${r.series} series${r.truncated ? " (top 40 shown)" : ""} · ${r.points} points · ${ms} ms`;
+      const series = r.result.map((s, i) => ({ name: lab(s.metric), data: s.values, color: i === 0 ? K.C.teal : undefined }));
+      if (chart) chart.destroy();
+      chart = K.line("c-q", series, { decimals: 3, legend: series.length <= 12, zoom: true });
+      $("t-q").querySelector("tbody").innerHTML = r.result.map((s) => {
+        const v = s.values.map((p) => p[1]).filter((x) => x !== null); const mn = Math.min(...v), mx = Math.max(...v), av = v.reduce((a, b) => a + b, 0) / (v.length || 1);
+        return `<tr><td class="mono small">${Grid.esc(lab(s.metric))}</td><td class="right"><b>${Grid.fmt.num(s.last, 3)}</b></td><td class="right">${Grid.fmt.num(mn, 3)}</td><td class="right">${Grid.fmt.num(mx, 3)}</td><td class="right">${Grid.fmt.num(av, 3)}</td></tr>`;
+      }).join("");
+    } catch (e) { $("r-err").innerHTML = `<div class="note warn mb">${Grid.esc(e.message)}</div>`; }
+  }
+  $("run").addEventListener("click", run);
+  $("q").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); run(); } });
+  document.querySelectorAll("[data-q]").forEach((b) => b.addEventListener("click", () => { $("q").value = b.dataset.q; run(); }));
+  document.querySelectorAll("tr.pick").forEach((tr) => tr.addEventListener("click", () => { $("q").value = tr.dataset.metric; run(); window.scrollTo({ top: 0, behavior: "smooth" }); }));
+  $("win").addEventListener("change", run);
+  $("live").addEventListener("click", () => { const on = $("live").classList.toggle("on"); clearInterval(timer); if (on) timer = setInterval(() => !document.hidden && run(), 5000); });
+  if (!$("q").value) $("q").value = "topk(5, rack_temp_max_c)";
+  run();
+})();
+</script>
+{% endblock %}

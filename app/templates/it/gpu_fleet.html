@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head, icon %}
+{% block content %}
+{% set s = d.summary %}
+<div class="page-head">
+  <div><h1>GPU Monitoring</h1><p>Fleet explorer for {{ '{:,}'.format(s.total) }} NVIDIA B300 in {{ s.nodes }} HGX nodes (Slurm + CubeFlow). Funnel from provisioned to effective, the cost of idle allocations, out-of-the-box monitors and what to do about them.</p></div>
+  <div class="page-actions"><a class="btn" href="/observability/metrics?q=topk(10, gpu_temp_c)">PromQL</a><a class="btn" href="/platform/simulation?run=xid-storm">Simulate XID storm</a></div>
+</div>
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('Allocated', '{:,}'.format(s.allocated), '/ ' ~ '{:,}'.format(s.total), s.allocation_pct ~ '% of fleet', live='gpu.allocated', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Utilization', s.avg_util|num(1), '%', 'allocated-only <span data-live="gpu.avg_util_alloc" data-fmt="f1">' ~ s.avg_util_alloc ~ '</span>%', live='gpu.avg_util', fmt='f1', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Idle but allocated', s.idle_allocated, 'GPUs', '≈ <b>' ~ (d.idle.cost_hr_krw|krw) ~ '</b>/h chargeback', live='gpu.idle_allocated', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Temperature', s.avg_temp|num(1), '°C avg', 'p99 ' ~ s.p99_temp ~ ' · max <span data-live="gpu.max_temp" data-fmt="f1">' ~ s.max_temp ~ '</span>', live='gpu.avg_temp', fmt='f1', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Throttling', s.thermal_throttle, 'thermal', '<span data-live="gpu.power_throttle">' ~ s.power_throttle ~ '</span> at power cap', live='gpu.thermal_throttle', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Health', s.failed, 'failed', '<span data-live="gpu.xid_1h">' ~ s.xid_1h ~ '</span> XID in 1 h · ' ~ s.ecc_dbe_total ~ ' DBE', live='gpu.failed', fmt='int', size='s') }}</div>
+</div>
+
+<div class="g g-12 mt">
+  <div class="panel s-5">
+    {{ head('Fleet funnel', 'provisioned → effective') }}
+    <div class="funnel" id="funnel">
+      {% for f in d.funnel %}
+      <div class="funnel-row"><span>{{ f.stage }}</span><div class="bar"><i style="width:{{ f.gpus / d.funnel[0].gpus * 100 }}%"></i></div><span class="v">{{ '{:,}'.format(f.gpus) }}</span></div>
+      {% endfor %}
+    </div>
+    <div class="split mt">
+      <div><div class="xs muted">Idle allocated cost</div><div class="kpi-value xs">{{ d.idle.cost_day_krw|krw }}<span class="unit">/ day</span></div></div>
+      <div><div class="xs muted">Effective share</div><div class="kpi-value xs">{{ (s.effective / s.total * 100)|num(1) }}<span class="unit">%</span></div></div>
+    </div>
+  </div>
+  <div class="panel s-7">
+    {{ head('Monitors', 'out-of-the-box · evaluate every tick') }}
+    <div class="g g-2" style="gap:8px">
+      {% for m in d.monitors %}
+      <div class="mini row" style="gap:10px"><span class="dot {{ 'crit' if m.status == 'alert' else 'ok' }}"></span><div class="grow"><div class="small" style="font-weight:600">{{ m.name }}</div><div class="xs muted">{{ m.detail }}</div></div>{{ pill('alert' if m.status == 'alert' else 'ok', 'ALERT' if m.status == 'alert' else 'OK') }}</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% if d.recommendations %}
+<div class="panel mt">
+  {{ head('Recommendations', 'from utilization, thermals, queue and cost') }}
+  <div class="g g-3">
+    {% for r in d.recommendations %}
+    <a class="mini" href="{{ r.href }}"><div class="row between"><b class="small">{{ r.title }}</b><span class="tag teal">{{ r.kind }}</span></div><div class="xs muted mt-s">{{ r.detail }}</div></a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="panel mt" data-tab-scope>
+  <div class="tabs" data-tabs="tab" data-default="heatmap">
+    <button data-tab="heatmap">5,000-GPU heatmap</button><button data-tab="provisioning">Provisioning</button><button data-tab="performance">Performance</button>
+    <button data-tab="inventory">Inventory · Slurm + CubeFlow<span class="count">{{ s.nodes }}</span></button><button data-tab="connected">Connected entities</button>
+  </div>
+
+  <div data-panel="heatmap" data-group="tab">
+    <div class="row between wrap mb">
+      <div class="seg" id="hm-metric"><button data-m="util" class="on">Utilization</button><button data-m="sm">SM</button><button data-m="temp">Temperature</button><button data-m="power">Power</button><button data-m="mem">HBM</button></div>
+      <div class="row"><div class="scale"><span id="hm-lo"></span><span class="ramp" id="hm-ramp"></span><span id="hm-hi"></span></div>
+        <span class="xs muted">rows = racks R01–R40 · 16 nodes × 8 GPUs · amber underline = drain · white box = thermal throttle · red = failed</span></div>
+    </div>
+    <div class="heat-wrap" id="heat"></div>
+  </div>
+
+  <div data-panel="provisioning" data-group="tab">
+    <div class="g g-12">
+      <div class="s-8">{{ head('Allocation over time', '% of GPUs allocated · 24 h') }}<div class="chart m" id="c-alloc"></div></div>
+      <div class="s-4">{{ head('Workload mix', 'running GPUs by profile') }}<div class="chart m" id="c-mix"></div></div>
+    </div>
+    <div class="g g-2 mt">
+      <div>{{ head('Partitions', 'Slurm') }}
+        <table class="t"><thead><tr><th>Partition</th><th class="right">Nodes</th><th>GPU allocation</th><th class="right">Util</th><th class="right">Running</th><th class="right">Pending</th><th>Node states</th></tr></thead><tbody>
+          {% for p in d.partitions %}<tr><td><b>{{ p.id }}</b><div class="xs muted">{{ p.desc }}</div></td><td class="right">{{ p.nodes }}</td><td><div class="cell-bar">{{ bar(p.allocated_gpus / p.gpus * 100) }}<span class="xs muted">{{ p.allocated_gpus }}/{{ p.gpus }}</span></div></td>
+            <td class="right">{{ p.util }}%</td><td class="right">{{ p.running }}</td><td class="right">{{ p.pending }}</td><td class="xs muted">{% for k, v in p.states.items() if v %}{{ k }} {{ v }} {% endfor %}</td></tr>{% endfor %}
+        </tbody></table></div>
+      <div>{{ head('Device mix', 'on-prem vs cloud GPUs in service') }}
+        {% for dm in d.device_mix %}<div class="meter mb-s"><span>{{ dm.device }}</span><span class="tnum">{{ '{:,}'.format(dm.gpus) }}</span>{{ bar(dm.gpus / d.device_mix[0].gpus * 100, '' if loop.first else ('violet' if loop.index == 2 else 'info')) }}</div>{% endfor %}
+        {{ head('Projects', 'allocation vs quota', '/gpu-platform/ops?tab=projects', 'Quota') }}
+        <table class="t"><tbody>{% for p in d.projects %}<tr><td>{{ p.name }}</td><td style="width:40%"><div class="cell-bar">{{ bar(p.quota_pct, 'warn' if p.quota_pct > 100 else '') }}<span class="xs muted">{{ p.used_gpus }}/{{ p.quota_gpus }}</span></div></td><td class="right small">{{ p.util }}%</td></tr>{% endfor %}</tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div data-panel="performance" data-group="tab">
+    <div class="g g-2">
+      <div>{{ head('Utilization & SM activity', '60 min') }}<div class="chart m" id="c-util"></div></div>
+      <div>{{ head('Temperature', 'fleet avg · max · 60 min') }}<div class="chart m" id="c-temp"></div></div>
+      <div>{{ head('GPU node power', 'MW · 60 min') }}<div class="chart m" id="c-power"></div></div>
+      <div>{{ head('Throttling & idle', 'GPUs · 60 min') }}<div class="chart m" id="c-thr"></div></div>
+    </div>
+    <div class="mt">{{ head('Rack matrix', 'hottest GPU per rack · °C') }}<div class="chart m" id="c-rackheat"></div></div>
+    <div class="mt">{{ head('Recent XID events', 'DCGM · last 12') }}
+      <table class="t"><thead><tr><th>Time</th><th>GPU</th><th>XID</th><th>Meaning</th><th>Impact</th></tr></thead><tbody>
+        {% for x in d.xid_recent %}<tr data-href="/gpu-fleet/device/{{ x.gpu }}"><td class="mono small">{{ x.t|kst }}</td><td class="mono">{{ x.gpu }}</td><td><span class="tag">{{ x.code }}</span></td><td>{{ x.desc }}</td><td>{{ pill('critical' if x.fatal else 'warning', 'node drained' if x.fatal else 'logged') }}</td></tr>
+        {% else %}<tr><td colspan="5" class="empty">No XID events in this window.</td></tr>{% endfor %}
+      </tbody></table></div>
+  </div>
+
+  <div data-panel="inventory" data-group="tab">
+    <div class="table-tools">
+      <input class="input" id="n-q" placeholder="search node, job, user, project…" style="width:260px">
+      <select class="input" id="n-state"><option value="">any state</option>{% for st in ['alloc','mix','idle','drain','down'] %}<option>{{ st }}</option>{% endfor %}</select>
+      <select class="input" id="n-part"><option value="">any partition</option>{% for p in d.partitions %}<option>{{ p.id }}</option>{% endfor %}</select>
+      <select class="input" id="n-sort"><option value="id">sort: node</option><option value="util">sort: util</option><option value="temp">sort: temp</option><option value="power">sort: power</option><option value="mem">sort: HBM</option></select>
+      <span class="small muted" id="n-count"></span><span class="grow"></span>
+      <button class="btn sm" data-export="t-nodes" data-name="gpu-nodes">Export CSV</button>
+    </div>
+    <div class="table-wrap scroll"><table class="t" id="t-nodes"><thead><tr><th>Node</th><th>Rack</th><th>Partition</th><th>State</th><th>GPUs alloc</th><th class="right">Util %</th><th class="right">HBM GB</th><th class="right">Power kW</th><th class="right">Max °C</th><th>Job</th><th>User</th><th>Project</th><th>Orchestrator</th></tr></thead><tbody></tbody></table></div>
+  </div>
+
+  <div data-panel="connected" data-group="tab">
+    <div class="g g-2">
+      <div>{{ head('Slurm / CubeFlow jobs', 'largest running jobs', '/gpu-platform/workloads', 'Workloads') }}<div class="table-wrap scroll-s"><table class="t" id="t-jobs"><thead><tr><th>Job</th><th>Name</th><th>Project</th><th class="right">GPUs</th><th>Progress</th><th class="right">Speed</th></tr></thead><tbody></tbody></table></div></div>
+      <div>{{ head('Inference pods on MIG slices', 'B300 MIG · infer partition', '/gpu-platform/workloads?tab=partition', 'Partitioning') }}<div class="table-wrap scroll-s"><table class="t" id="t-pods"><thead><tr><th>Pod</th><th>Service</th><th>Profile</th><th>GPU</th></tr></thead><tbody></tbody></table></div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C, F = Grid.fmt, esc = Grid.esc;
+  // ---------------- heatmap
+  const heat = new HeatGrid(document.getElementById("heat"));
+  let metric = new URL(location.href).searchParams.get("metric") || "util";
+  const setMetric = (m) => { metric = m; document.querySelectorAll("#hm-metric button").forEach((b) => b.classList.toggle("on", b.dataset.m === m)); loadHeat(); };
+  document.querySelectorAll("#hm-metric button").forEach((b) => b.addEventListener("click", () => setMetric(b.dataset.m)));
+  async function loadHeat() {
+    const d = await Grid.getJSON("/api/gpu/heatmap?metric=" + metric);
+    heat.set(d);
+    document.getElementById("hm-ramp").style.background = HeatGrid.rampCSS(metric);
+    document.getElementById("hm-lo").textContent = d.min + " " + d.unit; document.getElementById("hm-hi").textContent = d.max + " " + d.unit;
+  }
+  setMetric(metric);
+  Grid.every(5000, loadHeat);
+
+  // ---------------- inventory table
+  const tb = document.querySelector("#t-nodes tbody");
+  const stateLvl = { alloc: "ok", mix: "ok", idle: "idle", drain: "warn", down: "crit" };
+  async function loadNodes() {
+    const q = new URLSearchParams({ q: n_q.value, state: n_state.value, partition: n_part.value, sort: n_sort.value });
+    const d = await Grid.getJSON("/api/gpu/nodes?" + q);
+    document.getElementById("n-count").textContent = `${d.total} nodes`;
+    tb.innerHTML = d.rows.map((r) => `<tr data-href="/gpu-fleet/node/${r.id}"><td class="mono">${r.id}</td><td>${r.rack}</td><td>${r.partition}</td><td><span class="pill ${stateLvl[r.state] || "idle"}">${r.state}</span></td>
+      <td>${r.alloc}/8</td><td class="right ${r.util > 90 ? "t-teal" : ""}">${F.f1(r.util)}</td><td class="right">${F.int(r.mem_gb)}</td><td class="right">${F.f2(r.power_kw)}</td>
+      <td class="right ${r.temp >= 87 ? "t-crit" : r.temp >= 80 ? "t-warn" : ""}">${F.f1(r.temp)}</td><td>${r.job_id ? `<a class="link" href="/gpu-fleet/job/${r.job_id}">${esc(r.job)}</a>` : esc(r.job)}</td><td>${esc(r.user)}</td><td class="small">${esc(r.project)}</td><td class="small muted">${esc(r.orch)}</td></tr>`).join("");
+  }
+  const n_q = document.getElementById("n-q"), n_state = document.getElementById("n-state"), n_part = document.getElementById("n-part"), n_sort = document.getElementById("n-sort");
+  let deb; n_q.addEventListener("input", () => { clearTimeout(deb); deb = setTimeout(loadNodes, 200); });
+  [n_state, n_part, n_sort].forEach((e) => e.addEventListener("change", loadNodes));
+  let invOn = false;
+  window.addEventListener("tab:tab", (e) => { invOn = e.detail === "inventory"; if (invOn) loadNodes(); if (e.detail === "performance") perf(); if (e.detail === "provisioning") prov(); if (e.detail === "connected") conn(); });
+  setInterval(() => { if (invOn && !document.hidden) loadNodes(); }, 10000);
+
+  // ---------------- provisioning
+  let provDone = false;
+  async function prov() {
+    if (provDone) return; provDone = true;
+    K.area("c-alloc", [{ name: "allocated %", data: await K.series("gpu_alloc_pct_24h", { minutes: 1440 }), color: C.teal }], { min: 0, max: 100, unit: "%", decimals: 1 });
+    const mix = {{ d.workload_mix|tojson }};
+    K.donut("c-mix", mix.map((m, i) => ({ name: m.profile, y: m.gpus, color: Highcharts.getOptions().colors[i] })), { center: F.int(mix.reduce((a, b) => a + b.gpus, 0)) + "<br><span style='font-size:10px;color:#8b8f98'>GPUs</span>" });
+  }
+  // ---------------- performance
+  let perfCharts = null;
+  async function perf() {
+    if (perfCharts) return;
+    const [u, sm, ta, tm, pw, th, idle] = await Promise.all(["gpu_util_avg", "gpu_sm_avg", "gpu_temp_avg", "gpu_temp_max", "gpu_power_mw", "gpu_throttle_count", "gpu_idle_alloc"].map((m) => K.series(m, { minutes: 60 })));
+    perfCharts = {
+      u: K.area("c-util", [{ name: "GPU util %", data: u }, { name: "SM active %", data: sm, color: C.steel }], { min: 0, max: 100, decimals: 1 }),
+      t: K.line("c-temp", [{ name: "avg °C", data: ta }, { name: "max °C", data: tm, color: C.amber }], { decimals: 1, plotLines: [{ value: 87, color: C.crit, dashStyle: "Dash", width: 1, label: { text: "throttle 87 °C", style: { color: C.crit, fontSize: "10px" } } }] }),
+      p: K.area("c-power", [{ name: "GPU nodes MW", data: pw }], { decimals: 3 }),
+      th: K.line("c-thr", [{ name: "throttling", data: th, color: C.amber }, { name: "idle allocated", data: idle, color: C.steel }], { decimals: 0, min: 0 }),
+    };
+    const fleet = await Grid.getJSON("/api/gpu/fleet");
+    const racks = fleet.racks, rows = ["A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4"];
+    const data = racks.map((r, i) => [i % 5, rows.indexOf(r.row), r.temp_max]);
+    K.heat("c-rackheat", ["pos 1", "pos 2", "pos 3", "pos 4", "pos 5"], rows, data, { min: 40, max: 90, unit: "°C", labels: true,
+      tooltip: function () { const r = racks[rows.indexOf(this.series.yAxis.categories[this.point.y]) * 5 + this.point.x]; return `<b>${r.id}</b> · row ${r.row}<br>max ${F.f1(r.temp_max)} °C · ${F.f1(r.kw)} kW · util ${F.f1(r.util)}%`; } });
+  }
+  Grid.onLive((L) => {
+    if (!perfCharts) return; const ms = L.ts * 1000;
+    K.push(perfCharts.u, 0, ms, L.gpu.avg_util); K.push(perfCharts.u, 1, ms, L.gpu.avg_sm);
+    K.push(perfCharts.t, 0, ms, L.gpu.avg_temp); K.push(perfCharts.t, 1, ms, L.gpu.max_temp);
+    K.push(perfCharts.p, 0, ms, L.gpu.power_mw); K.push(perfCharts.th, 0, ms, L.gpu.thermal_throttle + L.gpu.power_throttle); K.push(perfCharts.th, 1, ms, L.gpu.idle_allocated);
+  });
+  // ---------------- connected
+  async function conn() {
+    const w = await Grid.getJSON("/api/gpu-platform/workloads");
+    document.querySelector("#t-jobs tbody").innerHTML = w.running.slice(0, 25).map((j) => `<tr data-href="/gpu-fleet/job/${j.id}"><td class="mono">${j.id}</td><td>${esc(j.name)}</td><td class="small">${esc(j.project)}</td><td class="right">${F.int(j.gpus)}</td>
+      <td><div class="cell-bar"><div class="bar"><i style="width:${j.service ? 100 : j.progress}%" class="${j.service ? "steel" : ""}"></i></div><span class="xs muted">${j.service ? "service" : F.f1(j.progress) + "%"}</span></div></td><td class="right ${j.speed < 0.8 ? "t-warn" : ""}">${F.f2(j.speed)}×</td></tr>`).join("");
+    const pods = w.mig.flatMap((g) => g.instances.map((x) => ({ ...x, gpu: g.gpu })));
+    document.querySelector("#t-pods tbody").innerHTML = pods.slice(0, 60).map((p) => `<tr data-href="/gpu-fleet/pod/${p.pod}"><td class="mono small">${esc(p.pod)}</td><td>${esc(p.service)}</td><td><span class="tag">${p.profile}</span></td><td class="mono small"><a class="link" href="/gpu-fleet/device/${p.gpu}">${p.gpu}</a></td></tr>`).join("");
+  }
+})();
+</script>
+{% endblock %}

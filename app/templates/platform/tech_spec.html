@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, head %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Tech Spec</h1><p><b>{{ d.release }}</b> — a physically grounded digital twin of the Krafton Grid 100 MW AIDC. Everything on screen is computed every {{ d.tick_s }} s from the models below; nothing is a canned animation.</p></div>
+  <div class="page-actions"><a class="btn" href="/platform/requirements">Requirements</a><a class="btn" href="/developers/api">API Catalog</a></div>
+</div>
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('Release', d.release, '', 'version ' ~ d.version, size='xs') }}</div>
+  <div class="panel tight">{{ kpi('Port', d.port, '', 'uvicorn · SSE', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Tick', d.tick_s, 's', 'compute ' ~ d.tick_ms ~ ' ms', live='tick_ms', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Metrics', d.metrics, '', '{:,}'.format(d.series) ~ ' series', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Redis', 'mirror', '', '<span class="mono xs">' ~ d.redis ~ ':*</span>', size='s') }}</div>
+  <div class="panel tight">{{ kpi('GPUs simulated', '5,000', '', 'per tick, vectorised', size='s') }}</div>
+</div>
+<div class="g g-2 mt">
+  <div class="panel">{{ head('Stack') }}<div class="kv">{% for k, v in d.stack %}<span>{{ k }}</span><span style="text-align:left">{{ v }}</span>{% endfor %}</div></div>
+  <div class="panel">{{ head('Code map') }}<div class="kv">{% for k, v in d.codemap %}<span class="mono xs">{{ k }}</span><span style="text-align:left" class="small">{{ v }}</span>{% endfor %}</div></div>
+</div>
+<div class="panel mt">
+  {{ head('Physical & operational model') }}
+  <table class="t"><tbody>{% for k, v in d.model %}<tr><td style="width:180px"><b class="small">{{ k }}</b></td><td class="small">{{ v }}</td></tr>{% endfor %}</tbody></table>
+</div>
+<div class="panel mt">
+  {{ head('Design system', 'black canvas · graphite cards · red reserved for critical and brand') }}
+  <div class="row wrap" style="gap:10px">
+    {% for name, var in [('canvas','--bg'),('panel','--panel'),('raised','--raised'),('line','--line'),('ink','--ink'),('muted','--muted'),('teal · data','--teal'),('steel · data','--steel'),('info','--info'),('warn','--warn'),('ok','--ok'),('critical / brand','--crit')] %}
+    <div class="mini" style="width:120px"><div style="height:34px;border-radius:7px;background:var({{ var }});border:1px solid var(--line)"></div><div class="xs mt-s"><b>{{ name }}</b></div><div class="xs mono muted">{{ var }}</div></div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

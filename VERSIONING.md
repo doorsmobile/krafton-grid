@@ -1,29 +1,33 @@
 # Versioning & local path
 
-Project slug: **dcim-cursor**  
-Current version: <!-- VERSION:START --> 3.1 <!-- VERSION:END -->  
-Release name: <!-- RELEASE:START --> dcim-cursor-v3.1 <!-- RELEASE:END -->  
-Local checkout: `/Users/logan/code/dcim-cursor-v3.1`
+Project slug: **grid-claude**
+Current version: <!-- VERSION:START --> 2.0 <!-- VERSION:END -->
+Release name: <!-- RELEASE:START --> grid-claude-v2.0 <!-- RELEASE:END -->
+Local checkout: `/Users/logan/Code/grid-claude-v2.0`
 
 ## Scheme
 
 Two-part versions **`X.Y`** where **Y is a single digit 0–9**:
 
 ```
-0.8 → 0.9 → 1.0 → 1.1 → … → 1.9 → 2.0
+1.8 → 1.9 → 2.0 → 2.1 → … → 2.9 → 3.0
 ```
 
-Do **not** use `0.10` / `0.11` (that looks like 0.1×). After `0.9`, the next bump is **`1.0`**.
+Never `1.10` / `2.11`. After `x.9` the next bump is `(x+1).0`. The release name always contains **claude**: `grid-claude-vX.Y`.
 
-`scripts/bump_version.py` enforces this wrap automatically.
+## Workflow
 
-## Agent workflow
+1. `python3 scripts/bump_version.py` — minor bump with wrap (`--major`, `--set X.Y`, `--check` also available)
+2. The script rewrites `VERSION` and the `<!-- VERSION -->` / `<!-- RELEASE -->` markers plus mentions of the current
+   release in `README.md`, `VERSIONING.md` and `docs/REQUIREMENTS.md`. Older releases named in changelogs are left alone.
+3. Keep `docs/REQUIREMENTS.md` (canonical spec), `README.md` and the Tech Spec page in sync with menu names,
+   Cloud order (**AWS → GCP → NHN**) and feature changes.
+4. Copy the tree to `/Users/logan/Code/grid-claude-vX.Y` for the new release; the app reads its version from `VERSION`.
+5. Local ports by agent: ChatGPT 8001 · Cursor 8002 · **Claude 8003**.
 
-On every meaningful change:
-1. `python3 scripts/bump_version.py` (default: minor; wraps 0.9→1.0)
-2. Bump syncs **`dcim-cursor-vX.Y` + version markers** into all MD prompts:
-   `README.md`, `VERSIONING.md`, `docs/REQUIREMENTS.md`, `app/static/brand/README.md`
-3. `bash scripts/sync_local.sh` — writes `dist/dcim-cursor-vX.Y.tar.gz`, copies to artifacts, and prints a **litterbox** URL for the real Mac (`/Users/logan/code` inside the cloud VM is not your laptop).
-4. Give the user the Mac `curl | tar | ./run_mac.sh` commands from that URL.
-5. Keep **`docs/REQUIREMENTS.md`** (canonical prompt / 입력 조건), **`README.md`**, and Tech Spec in sync with menu names, Cloud order (**AWS → GCP → NHN**), and feature changes.
-6. Local ports by agent: **ChatGPT 8001 · Cursor 8002 · Claude 8003** (this repo defaults to **8002**).
+## History
+
+| Version | Notes |
+|---|---|
+| 1.0 | First Claude build from the AIDC requirements MD; later aligned with the shared v1.8 spec |
+| 2.0 | Full rewrite: physics twin, SSE, causal scenarios + incidents, PromQL/LogQL, Claude Mission Control, job console, Energy & ESG, Budget workflow |

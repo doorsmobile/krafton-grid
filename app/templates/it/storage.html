@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head, chead %}
+{% block content %}
+{% set s = d.summary %}
+<div class="page-head">
+  <div><h1>Storage</h1><p>IBM Storage Scale · {{ s.total_pb|num(0) }} PB across three tiers. Training jobs read from the NVMe hot tier; synchronized checkpoints arrive as write bursts — the latency that matters is the hot tier's.</p></div>
+  <div class="page-actions"><a class="btn" href="/storage/toptalkers">Top talkers</a><a class="btn" href="/platform/simulation?run=checkpoint-storm">Simulate checkpoint storm</a></div>
+</div>
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('Used', s.used_pb|num(2), '/ 100 PB', s.used_pct ~ '%', live='storage.used_pb', fmt='f2', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Read', s.read_gbs|num(0), 'GB/s', 'all tiers', live='storage.read_gbs', fmt='int', spark='sp-r', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Write', s.write_gbs|num(0), 'GB/s', d.ckpt_jobs ~ ' jobs checkpointing', live='storage.write_gbs', fmt='int', spark='sp-w', size='s') }}</div>
+  <div class="panel tight">{{ kpi('IOPS', s.iops_k|num(0), 'k', '', live='storage.iops_k', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Hot-tier latency', s.latency_ms|num(2), 'ms', 'alert at 1.5 ms', live='storage.latency_ms', fmt='f2', spark='sp-l', size='s') }}</div>
+  <div class="panel tight"><div class="kpi"><div class="kpi-label">Capacity</div><div class="kpi-value s">{{ s.used_pct }}<span class="unit">%</span></div>{{ bar(s.used_pct, '', live='storage.used_pct', warn=85, crit=95, size='lg') }}</div></div>
+</div>
+<div class="section-title">Clusters</div>
+<div class="g g-3">
+  {% for c in d.clusters %}
+  <a class="panel {{ 'warn' if c.health != 'healthy' else '' }}" href="/storage/cluster/{{ c.id }}">
+    {{ chead(c.name, c.product, 'Cluster') }}
+    <div class="row between"><div class="kpi-value s">{{ c.used_pb|num(1) }}<span class="unit">/ {{ c.capacity_pb|num(0) }} PB</span></div><span class="pill {{ c.health|level }}" data-live-pill="storage.clusters.{{ c.id }}.health">{{ c.health }}</span></div>
+    <div class="mt-s">{{ bar(c.used_pb / c.capacity_pb * 100, 'steel') }}</div>
+    <div class="g g-3 mt" style="gap:8px">
+      <div class="mini"><div class="l">read GB/s</div><div class="v" data-live="storage.clusters.{{ c.id }}.read_gbs" data-fmt="int">{{ c.read_gbs|num(0) }}</div></div>
+      <div class="mini"><div class="l">write GB/s</div><div class="v" data-live="storage.clusters.{{ c.id }}.write_gbs" data-fmt="int">{{ c.write_gbs|num(0) }}</div></div>
+      <div class="mini"><div class="l">latency ms</div><div class="v" data-live="storage.clusters.{{ c.id }}.latency_ms" data-fmt="f2">{{ c.latency_ms|num(2) }}</div></div>
+    </div>
+    <div class="meter mt"><span class="muted">bandwidth used</span><span class="tnum"><span data-live="storage.clusters.{{ c.id }}.util_pct" data-fmt="f1">{{ c.util_pct }}</span>% of {{ c.peak_read_gbs|num(0) }} GB/s</span>{{ bar(c.util_pct, live='storage.clusters.' ~ c.id ~ '.util_pct', warn=80, crit=95) }}</div>
+    <div class="xs muted mt-s">NSD servers {{ c.nsd_up }}/{{ c.nsd_total }} · racks {{ c.racks[0] }}–{{ c.racks[-1] }} · meta {{ c.meta_kops }} kops/s</div>
+  </a>
+  {% endfor %}
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-8">{{ head('Throughput by tier', 'read + write GB/s · 60 min') }}<div class="chart l" id="c-tp"></div></div>
+  <div class="panel s-4">{{ head('Latency by tier', 'ms · 60 min') }}<div class="chart l" id="c-lat"></div></div>
+</div>
+<div class="panel flush mt">
+  {{ head('Top talkers · filesets', 'by IOPS', '/storage/toptalkers', 'All') }}
+  <div class="table-wrap"><table class="t" data-sortable><thead><tr><th>Fileset</th><th>Cluster</th><th>Project</th><th class="right">IOPS k</th><th class="right">Read GB/s</th><th class="right">Write GB/s</th><th class="right">Latency ms</th><th>Quota</th></tr></thead><tbody>
+    {% for v in d.toptalkers %}<tr data-href="/storage/cluster/{{ v.cluster }}"><td class="mono small">{{ v.path }}</td><td>{{ v.cluster }}</td><td>{{ v.project }}</td><td class="right">{{ v.iops_k }}</td><td class="right">{{ v.read_gbs }}</td><td class="right">{{ v.write_gbs }}</td><td class="right">{{ v.latency_ms }}</td>
+      <td><div class="cell-bar">{{ bar(v.used_tb / v.quota_tb * 100, 'warn' if v.used_tb / v.quota_tb > 0.9 else 'steel') }}<span class="xs muted">{{ v.used_tb|num(0) }}/{{ v.quota_tb|num(0) }} TB</span></div></td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C;
+  const sp = [["sp-r", "storage_read_total_gbs", "storage.read_gbs", C.teal], ["sp-w", "storage_write_total_gbs", "storage.write_gbs", C.violet]];
+  const charts = [];
+  for (const [id, m, path, color] of sp) charts.push([K.spark(id, await K.series(m, { minutes: 30 }), { color }), path]);
+  charts.push([K.spark("sp-l", await K.series("storage_latency_ms", { col: 0, minutes: 30 }), { color: C.amber }), "storage.latency_ms"]);
+  const [rh, rc, ra] = await K.seriesMulti("storage_read_gbs", [0, 1, 2], { minutes: 60 });
+  const [wh, wc, wa] = await K.seriesMulti("storage_write_gbs", [0, 1, 2], { minutes: 60 });
+  const tp = K.area("c-tp", [{ name: "hot read", data: rh, color: C.teal }, { name: "hot write", data: wh, color: C.violet }, { name: "capacity read", data: rc, color: C.steel }, { name: "capacity write", data: wc, color: C.steel2 }], { decimals: 0, unit: "GB/s" });
+  const [lh, lc, la] = await K.seriesMulti("storage_latency_ms", [0, 1, 2], { minutes: 60 });
+  const lat = K.line("c-lat", [{ name: "hot", data: lh, color: C.teal }, { name: "capacity", data: lc, color: C.steel }], { decimals: 2, unit: "ms", plotLines: [{ value: 1.5, color: C.amber, dashStyle: "Dash", width: 1 }] });
+  Grid.onLive((L) => {
+    const ms = L.ts * 1000, c = L.storage.clusters;
+    charts.forEach(([ch, p]) => K.push(ch, 0, ms, Grid.pick(L, p), 900));
+    K.push(tp, 0, ms, c["ss-hot"].read_gbs); K.push(tp, 1, ms, c["ss-hot"].write_gbs); K.push(tp, 2, ms, c["ss-capacity"].read_gbs); K.push(tp, 3, ms, c["ss-capacity"].write_gbs);
+    K.push(lat, 0, ms, c["ss-hot"].latency_ms); K.push(lat, 1, ms, c["ss-capacity"].latency_ms);
+  });
+})();
+</script>
+{% endblock %}

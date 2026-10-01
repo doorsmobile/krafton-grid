@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set s = d.summary %}
+<div class="page-head">
+  <div><h1>Cooling</h1><p>Liquid-first: 88% of rack heat leaves through row CDUs into the warm-water (FWS) loop and is rejected by towers with plate-HX free cooling. Chillers serve only the air side (CRAH) and trim in hot weather. N+1 at every stage — one spare CDU per GPU hall.</p></div>
+  <div class="page-actions"><span class="pill {{ s.redundancy|level }}" data-live-pill="cooling.redundancy">{{ s.redundancy }}</span><a class="btn" href="/platform/simulation?run=cdu-failure">Run CDU failure</a></div>
+</div>
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('Rack coolant max', s.tcs_supply_max_c|num(1), '°C', 'avg <span data-live="cooling.tcs_supply_avg_c" data-fmt="f1">' ~ (s.tcs_supply_avg_c|num(1)) ~ '</span> °C', live='cooling.tcs_supply_max_c', fmt='f1', size='s') }}</div>
+  <div class="panel tight">{{ kpi('FWS supply', s.fws_supply_c|num(1), '°C', 'return <span data-live="cooling.fws_return_c" data-fmt="f1">' ~ (s.fws_return_c|num(1)) ~ '</span> °C', live='cooling.fws_supply_c', fmt='f1', size='s') }}</div>
+  <div class="panel tight">{{ kpi('CHW supply', s.chw_supply_c|num(2), '°C', 'setpoint 18.0 · return <span data-live="cooling.chw_return_c" data-fmt="f1">' ~ (s.chw_return_c|num(1)) ~ '</span>', live='cooling.chw_supply_c', fmt='f2', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Free cooling', s.free_cooling_pct|num(1), '%', 'wet-bulb <span data-live="site.ambient.wet_c" data-fmt="f1">' ~ (d.ambient.wet_c|num(1)) ~ '</span> °C', live='cooling.free_cooling_pct', fmt='f1', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Chillers running', s.chillers_running, '/ 5', 'load <span data-live="cooling.chiller_load_mw" data-fmt="f2">' ~ (s.chiller_load_mw|num(2)) ~ '</span> MW', live='cooling.chillers_running', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Cooling power', (s.cooling_kw)|num(0), 'kW', 'water <span data-live="cooling.water_lph" data-fmt="int">' ~ (s.water_lph|num) ~ '</span> L/h · WUE ' ~ d.wue, live='cooling.cooling_kw', fmt='int', size='s') }}</div>
+</div>
+
+<div class="panel mt">
+  {{ head('Cooling loops · live', 'liquid path (top) and air path (bottom). CDUs and chillers open their detail pages.') }}
+  <svg class="diagram" viewBox="0 0 1200 400" id="loops">
+    <text x="16" y="24" fill="#8b8f98" font-size="11" font-weight="600" letter-spacing=".08em">LIQUID · FWS → CDU → TCS → cold plates</text>
+    {% for i in range(6) %}<a href="/facility/cooling/CT-{{ i + 1 }}"><rect x="{{ 16 + i * 30 }}" y="40" width="24" height="40" rx="5" fill="#121215" stroke="#38bdf8" data-dev="CT-{{ i + 1 }}"/><text x="{{ 28 + i * 30 }}" y="94" text-anchor="middle" fill="#8b8f98" font-size="9">CT{{ i + 1 }}</text></a>{% endfor %}
+    {% for i in range(4) %}<a href="/facility/cooling/HX-{{ i + 1 }}"><rect x="{{ 210 + i * 26 }}" y="46" width="20" height="30" rx="4" fill="#121215" stroke="#2dd4bf"/><text x="{{ 220 + i * 26 }}" y="94" text-anchor="middle" fill="#8b8f98" font-size="9">HX{{ i + 1 }}</text></a>{% endfor %}
+    <path d="M320 60 H1180" stroke="#2dd4bf" stroke-width="3" class="flow-line"/>
+    <text x="330" y="52" fill="#2dd4bf" font-size="11" font-weight="650">FWS supply <tspan data-t="fws">{{ s.fws_supply_c|num(1) }}</tspan> °C</text>
+    {% set cdus = ['A1','A2','A3','A4','AS','B1','B2','B3','B4','BS'] %}
+    {% for c in cdus %}{% set x = 340 + loop.index0 * 84 %}{% set cid = 'CDU-' ~ c %}
+      <path d="M{{ x + 36 }} 60 V104" stroke="#2dd4bf" stroke-width="1.6" data-feed="{{ cid }}"/>
+      <a href="/facility/cooling/{{ cid }}"><g data-cdu="{{ cid }}"><rect x="{{ x }}" y="104" width="72" height="52" rx="8" fill="#121215" stroke="#2dd4bf" stroke-width="1.3"/>
+      <text x="{{ x + 8 }}" y="120" fill="#f3f4f6" font-size="11" font-weight="650">{{ cid }}</text>
+      <text x="{{ x + 8 }}" y="134" fill="#8b8f98" font-size="9.5" data-cs="{{ cid }}">—</text>
+      <text x="{{ x + 8 }}" y="148" fill="#8b8f98" font-size="9.5" data-cl="{{ cid }}">—</text></g></a>
+      {% if 'S' not in c %}
+      <path d="M{{ x + 36 }} 156 V186" stroke="#2dd4bf" stroke-width="1.6" data-tcs="{{ c }}"/>
+      <a href="/rack-view"><rect x="{{ x }}" y="186" width="72" height="28" rx="6" fill="#0f0f11" stroke="#34343b" data-rowbox="{{ c }}"/>
+      <text x="{{ x + 36 }}" y="199" text-anchor="middle" fill="#c9ccd3" font-size="9.5">row {{ c }}</text>
+      <text x="{{ x + 36 }}" y="210" text-anchor="middle" fill="#f3f4f6" font-size="10" font-weight="650" data-rowt="{{ c }}">—</text></a>
+      {% else %}
+      <text x="{{ x + 36 }}" y="178" text-anchor="middle" fill="#5d616b" font-size="9.5" data-spare="{{ cid }}">N+1 spare</text>
+      {% endif %}
+    {% endfor %}
+    <text x="16" y="256" fill="#8b8f98" font-size="11" font-weight="600" letter-spacing=".08em">AIR · chillers → CHW → CRAH → hall inlet</text>
+    {% for i in range(5) %}<a href="/facility/cooling/CH-{{ i + 1 }}"><g data-ch="CH-{{ i + 1 }}"><rect x="{{ 16 + i * 60 }}" y="272" width="52" height="46" rx="8" fill="#121215" stroke="#a78bfa" stroke-width="1.3"/>
+      <text x="{{ 42 + i * 60 }}" y="290" text-anchor="middle" fill="#f3f4f6" font-size="10.5" font-weight="650">CH-{{ i + 1 }}</text>
+      <text x="{{ 42 + i * 60 }}" y="306" text-anchor="middle" fill="#8b8f98" font-size="9" data-chs="CH-{{ i + 1 }}">—</text></g></a>{% endfor %}
+    <path d="M320 294 H1180" stroke="#a78bfa" stroke-width="3" class="flow-line"/>
+    <text x="330" y="286" fill="#a78bfa" font-size="11" font-weight="650">CHW supply <tspan data-t="chw">{{ s.chw_supply_c|num(1) }}</tspan> °C</text>
+    {% for h, n, x0 in [('HA', 4, 360), ('HB', 4, 620), ('HC', 8, 880)] %}
+      {% for i in range(n) %}<path d="M{{ x0 + i * 32 + 12 }} 294 V320" stroke="#a78bfa" stroke-width="1.2"/><rect x="{{ x0 + i * 32 }}" y="320" width="24" height="26" rx="5" fill="#121215" stroke="#34343b"/>{% endfor %}
+      <a href="/facility/hall/{{ h }}"><text x="{{ x0 }}" y="366" fill="#c9ccd3" font-size="10.5" font-weight="600">{{ {'HA': 'Hall A', 'HB': 'Hall B', 'HC': 'Hall C'}[h] }} CRAH ×{{ n }}</text>
+      <text x="{{ x0 }}" y="382" fill="#8b8f98" font-size="10">inlet <tspan data-inlet="{{ h }}">—</tspan> °C</text></a>
+    {% endfor %}
+  </svg>
+</div>
+
+<div class="g g-12 mt">
+  <div class="panel s-8">{{ head('Rack coolant supply by row', 'TCS supply °C · 60 min · warning 38.5 · critical 45') }}<div class="chart l" id="c-rows"></div></div>
+  <div class="panel s-4">{{ head('Loops', 'FWS · CHW supply °C · 60 min') }}<div class="chart l" id="c-loops"></div></div>
+</div>
+
+<div class="panel flush mt">
+  {{ head('Rows · CDU → racks', 'heat captured per row, coolant, GPU temperatures') }}
+  <div class="table-wrap"><table class="t" data-sortable><thead><tr><th>Row</th><th>Hall</th><th>CDU</th><th>Status</th><th class="right">Supply °C</th><th class="right">Return °C</th><th class="right">Heat kW</th><th class="right">GPU max °C</th><th class="right">GPU avg °C</th><th class="right">Throttling</th><th>Racks</th></tr></thead><tbody>
+    {% for r in d.rows %}
+    <tr data-href="/facility/cooling/{{ r.cdu }}" class="{{ 'crit' if r.cdu_status == 'failed' else '' }}"><td class="mono">{{ r.row }}</td><td>{{ r.hall }}</td><td class="mono">{{ r.cdu }}</td><td>{{ pill(r.cdu_status) }}</td>
+      <td class="right {{ 't-crit' if r.supply_c > 45 else ('t-warn' if r.supply_c > 38.5 else '') }}">{{ r.supply_c|num(1) }}</td><td class="right">{{ r.return_c|num(1) }}</td><td class="right">{{ r.heat_kw|num(0) }}</td>
+      <td class="right {{ 't-crit' if r.gpu_temp_max >= 87 else ('t-warn' if r.gpu_temp_max >= 80 else '') }}">{{ r.gpu_temp_max|num(1) }}</td><td class="right">{{ r.gpu_temp_avg|num(1) }}</td><td class="right">{{ r.throttling }}</td>
+      <td class="small muted">{{ r.racks[0] }}–{{ r.racks[-1] }}</td></tr>
+    {% endfor %}
+  </tbody></table></div>
+</div>
+
+<div class="g g-2 mt">
+  {% for kind, title in [('cdu', 'CDUs · Vertiv CoolChip 1350'), ('chiller', 'Chillers · Trane CVHS'), ('tower', 'Cooling towers · BAC'), ('crah', 'CRAHs · STULZ')] %}
+  <div class="panel flush">
+    {{ head(title, (d.groups[kind]|length) ~ ' units') }}
+    <div class="table-wrap scroll-s"><table class="t" data-sortable><thead><tr><th>Unit</th><th>Status</th><th>Load</th><th>Detail</th></tr></thead><tbody>
+      {% for u in d.groups[kind] %}
+      <tr data-href="/facility/cooling/{{ u.id }}" class="{{ 'crit' if u.level == 'critical' else '' }}"><td class="mono">{{ u.id }}</td><td>{{ pill(u.status) }}</td><td><div class="cell-bar">{{ bar(u.load_pct) }}<span class="xs muted">{{ u.load_pct|num(0) }}%</span></div></td><td class="small muted">{{ u.detail }}</td></tr>
+      {% endfor %}
+    </tbody></table></div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C, F = Grid.fmt;
+  const rows = ["A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4"];
+  const rs = await K.seriesMulti("cooling_tcs_supply_c", rows.map((_, i) => i), { minutes: 60 });
+  const pal = [C.teal, "#22b8a5", "#5eead4", "#99f6e4", C.steel, "#a3acb9", C.sky, "#7dd3fc"];
+  const rc = K.line("c-rows", rs.map((d, i) => ({ name: rows[i], data: d, color: pal[i] })), { unit: "°C", decimals: 1, softMax: 40,
+    plotLines: [{ value: 38.5, color: C.amber, dashStyle: "Dash", width: 1 }, { value: 45, color: C.crit, dashStyle: "Dash", width: 1 }] });
+  const [fws, chw] = await Promise.all([K.series("cooling_fws_supply_c", { minutes: 60 }), K.series("cooling_chw_supply_c", { minutes: 60 })]);
+  const lc = K.line("c-loops", [{ name: "FWS supply", data: fws, color: C.teal }, { name: "CHW supply", data: chw, color: C.violet }], { unit: "°C", decimals: 2 });
+  const tempColor = (t) => HeatGrid.color("temp", (t - 25) / 30);
+  function paintLive(L) {
+    const c = L.cooling;
+    document.querySelector('[data-t="fws"]').textContent = F.f1(c.fws_supply_c);
+    document.querySelector('[data-t="chw"]').textContent = F.f1(c.chw_supply_c);
+    for (const [id, u] of Object.entries(c.cdus)) {
+      const g = document.querySelector(`[data-cdu="${id}"] rect`); if (!g) continue;
+      const failed = u.status === "failed", sb = u.status === "standby";
+      g.setAttribute("stroke", failed ? "#F9423A" : sb ? "#3a3a42" : "#2dd4bf"); g.setAttribute("fill", failed ? "rgba(249,66,58,.14)" : "#121215");
+      document.querySelector(`[data-cs="${id}"]`).textContent = failed ? "FAILED" : sb ? "standby" : F.f1(u.supply_c) + " °C";
+      document.querySelector(`[data-cl="${id}"]`).textContent = u.covering ? "→ row " + u.covering : (sb ? "" : F.int(u.load_pct) + "% load");
+      const feed = document.querySelector(`[data-feed="${id}"]`); if (feed) feed.style.opacity = failed || sb ? 0.2 : 1;
+    }
+    for (const r of rows) {
+      const t = c.row_supply_c[r]; const b = document.querySelector(`[data-rowbox="${r}"]`);
+      document.querySelector(`[data-rowt="${r}"]`).textContent = F.f1(t) + " °C";
+      if (b) b.setAttribute("stroke", t > 45 ? "#F9423A" : t > 38.5 ? "#fbbf24" : "#34343b");
+      const p = document.querySelector(`[data-tcs="${r}"]`); if (p) p.setAttribute("stroke", tempColor(t));
+    }
+    for (const [h, v] of Object.entries(L.site.halls)) { const e = document.querySelector(`[data-inlet="${h}"]`); if (e) e.textContent = F.f1(v.inlet_c); }
+  }
+  async function paintChillers() {
+    const d = await Grid.getJSON("/api/facility/cooling");
+    for (const ch of d.groups.chiller) {
+      const r = document.querySelector(`[data-ch="${ch.id}"] rect`); if (!r) continue;
+      r.setAttribute("stroke", ch.level === "critical" ? "#F9423A" : ch.status === "running" ? "#a78bfa" : ch.status === "starting" ? "#fbbf24" : "#3a3a42");
+      document.querySelector(`[data-chs="${ch.id}"]`).textContent = ch.status === "running" ? F.int(ch.load_pct) + "% · COP " + ch.detail.split(" ")[1] : ch.status;
+    }
+    for (const t of d.groups.tower) { const r = document.querySelector(`[data-dev="${t.id}"]`); if (r) r.setAttribute("stroke", t.status === "running" ? "#38bdf8" : "#3a3a42"); }
+  }
+  paintLive(Grid.live); paintChillers(); setInterval(() => !document.hidden && paintChillers(), 4000);
+  Grid.onLive((L) => {
+    paintLive(L); const ms = L.ts * 1000;
+    rows.forEach((r, i) => K.push(rc, i, ms, L.cooling.row_supply_c[r]));
+    K.push(lc, 0, ms, L.cooling.fws_supply_c); K.push(lc, 1, ms, L.cooling.chw_supply_c);
+  });
+})();
+</script>
+{% endblock %}

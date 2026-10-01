@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head, icon %}
+{% block content %}
+{% set open = d.requests|rejectattr('status', 'in', ['approved', 'rejected'])|list %}
+<div class="page-head">
+  <div><h1>Budget · FY{{ d.fy }}</h1><p>Budget vs actual vs forecast for every OPEX item — actuals come straight from the metered DC cost and cloud invoices on the Cost pages. Requests follow the internal forms: <b>예산 이관</b> (transfer), <b>예산 증액</b> (increase), <b>예산 환입</b> (refund) and <b>예산항목 생성</b> (new item), each routed 상신 → 팀장 승인 → 재무 검토 → 최종 승인. Approved requests adjust the budget immediately.</p></div>
+  <div class="page-actions"><a class="btn teal" href="#new">{{ icon('play') }} New request</a><a class="btn" href="/cost">Cost summary</a></div>
+</div>
+<div class="g g-5">
+  <div class="panel tight">{{ kpi('FY budget', d.total_budget|krw, '', d['items']|length ~ ' items incl. approved adjustments', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Actual · YTD', d.total_actual|krw, '', (d.total_actual / d.total_budget * 100)|num(1) ~ '% consumed', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Forecast · FY', d.total_forecast|krw, '', 'actual + current run-rate', size='s', cls='t-warn' if d.total_forecast > d.total_budget else '') }}</div>
+  <div class="panel tight">{{ kpi('Variance', ('+' if d.total_budget >= d.total_forecast else '−') ~ ((d.total_budget - d.total_forecast)|abs)|krw, '', 'under budget' if d.total_budget >= d.total_forecast else 'over budget', size='s', cls='t-ok' if d.total_budget >= d.total_forecast else 't-crit') }}</div>
+  <div class="panel tight">{{ kpi('Open requests', open|length, '', (open|sum(attribute='amount'))|krw ~ ' in flight', size='s') }}</div>
+</div>
+
+<div class="panel mt">{{ head('Budget vs actual vs forecast', 'per item · FY' ~ d.fy) }}<div class="chart l" id="c-bud"></div></div>
+
+<div class="panel mt flush">
+  {{ head('Budget items', 'status: ok · watch (forecast > 95%) · over (forecast > budget)') }}
+  <div class="table-wrap"><table class="t" id="t-bud" data-sortable><thead><tr><th>Code</th><th>Item</th><th class="right">Annual</th><th class="right">Adjustments</th><th class="right">Budget</th><th class="right">Actual YTD</th><th style="width:12%">Used</th><th class="right">Forecast FY</th><th class="right">Variance</th><th>Status</th><th></th></tr></thead><tbody>
+    {% for it in d['items'] %}<tr class="{{ 'crit' if it.status == 'over' else ('warn' if it.status == 'watch' else '') }}"><td class="mono small">{{ it.code }}</td><td><b class="small">{{ it.name }}</b> <span class="tag">{{ it.category }}</span></td>
+      <td class="right">{{ it.annual|krw }}</td><td class="right {{ 't-ok' if it.adjust > 0 else ('t-warn' if it.adjust < 0 else 'muted') }}">{{ ('+' if it.adjust > 0 else '') ~ (it.adjust|krw) if it.adjust else '—' }}</td><td class="right"><b>{{ it.budget|krw }}</b></td><td class="right">{{ it.actual_ytd|krw }}</td>
+      <td><div class="cell-bar">{{ bar(it.used_pct, warn=85, crit=100) }}<span class="xs muted">{{ it.used_pct }}%</span></div></td><td class="right">{{ it.forecast_fy|krw }}</td>
+      <td class="right {{ 't-crit' if it.variance < 0 else '' }}">{{ ('+' if it.variance >= 0 else '−') ~ (it.variance|abs|krw) }}</td><td>{{ pill(it.status) }}</td>
+      <td><button class="btn sm" data-prefill='{"kind":"{{ 'increase' if it.status != 'ok' else 'transfer' }}","source":"{{ it.code }}"}'>Request</button></td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+
+<div class="g g-12 mt">
+  <div class="panel s-7">
+    <div class="panel-head"><div><div class="panel-title">Requests</div><div class="panel-sub">{{ d.requests|length }} total · {{ open|length }} open</div></div>
+      <div class="seg" id="rq-f"><button class="on" data-f="open">Open</button><button data-f="closed">Closed</button><button data-f="all">All</button></div></div>
+    <div id="rq">
+      {% for r in d.requests %}{% set closed = r.status in ['approved', 'rejected'] %}
+      <div class="req {{ 'closed' if closed else 'open' }}" id="{{ r.id }}">
+        <div class="row between"><div class="row" style="gap:8px"><span class="kind-badge {{ r.kind }}">{{ r.kind_ko }}</span><b class="small mono">{{ r.id }}</b>{{ pill(r.status, d.step_label[r.status]) }}</div><b class="mono">{{ r.amount|krw }}</b></div>
+        <div class="small mt-s">{{ r.reason }}</div>
+        <div class="xs muted mt-s">
+          {% if r.kind == 'transfer' %}{{ r.source }} → {{ r.target }}{% elif r.kind == 'new_item' %}new item “{{ r.new_name or '—' }}” · {{ r.category or 'Shared' }}{% if r.created_code %} → <span class="mono">{{ r.created_code }}</span>{% endif %}{% else %}{{ r.source }}{% endif %}
+          · {{ r.team }} · created {{ r.created_t|kst('%m-%d %H:%M') }} · updated {{ r.updated_t|kst('%m-%d %H:%M') }}</div>
+        <div class="stepper mt-s">
+          {% set idx = d.steps.index(r.status) if r.status in d.steps else d.steps.index(r.history[-2].step) %}
+          {% for s in d.steps %}<span class="st {{ 'done' if idx >= loop.index0 else '' }} {{ 'cur' if idx == loop.index0 and r.status != 'rejected' else '' }}">{{ d.step_label[s] }}</span>{% endfor %}
+          {% if r.status == 'rejected' %}<span class="st rej">반려</span>{% endif %}
+        </div>
+        {% if not closed %}<div class="row mt-s" style="gap:6px;justify-content:flex-end">
+          <button class="btn sm danger" data-act="{{ r.id }}/reject">반려 · Reject</button>
+          <button class="btn sm teal" data-act="{{ r.id }}/approve">{{ '상신 · Submit' if r.status == 'draft' else ('승인 → ' ~ d.step_label[d.steps[idx + 1]]) }}</button></div>{% endif %}
+        <details class="mt-s"><summary class="xs muted">History</summary><div class="timeline mt-s">{% for h in r.history %}<div class="tl-item {{ 'closed' if h.step == 'approved' else ('opened' if h.step == 'rejected' else '') }}"><span class="tl-t">{{ h.t|kst('%m-%d %H:%M') }}</span>{{ h.label }} · {{ h.by }}</div>{% endfor %}</div></details>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="panel s-5" id="new">
+    {{ head('New request', '신청서 작성') }}
+    <div class="seg mb" id="kind">{% for k, v in d.kinds.items() %}<button data-k="{{ k }}" class="{{ 'on' if loop.first else '' }}">{{ v.ko }}</button>{% endfor %}</div>
+    <div class="form-grid">
+      <label for="f-src" class="f-src">Budget item</label>
+      <select class="input f-src" id="f-src">{% for it in d['items'] %}<option value="{{ it.code }}">{{ it.code }} · {{ it.name }} ({{ it.budget|krw }})</option>{% endfor %}</select>
+      <label for="f-dst" class="f-dst">Transfer to</label>
+      <select class="input f-dst" id="f-dst">{% for it in d['items'] %}<option value="{{ it.code }}" {{ 'selected' if loop.index == 2 else '' }}>{{ it.code }} · {{ it.name }}</option>{% endfor %}</select>
+      <label for="f-name" class="f-new">New item name</label>
+      <input class="input f-new" id="f-name" maxlength="60" placeholder="e.g. Synthetic data APIs">
+      <label for="f-cat" class="f-new">Category</label>
+      <select class="input f-new" id="f-cat"><option>Shared</option><option>DC</option><option>Cloud</option></select>
+      <label for="f-amt">Amount (₩)</label>
+      <div class="row" style="gap:8px"><input class="input mono" id="f-amt" type="number" min="1" step="10000000" value="500000000" style="width:170px"><span class="xs muted" id="f-amt-h"></span></div>
+      <label for="f-team">Requesting team</label>
+      <select class="input" id="f-team">{% for t in ['Infra Ops', 'AI Platform', 'Inference Platform', 'AI Research', 'Storage', 'Network', 'FinOps'] %}<option>{{ t }}</option>{% endfor %}</select>
+      <label for="f-reason">Reason</label>
+      <textarea class="input" id="f-reason" rows="3" maxlength="300" placeholder="사유 · justification"></textarea>
+      <label></label>
+      <label class="row xs" style="gap:6px;color:var(--ink-2)"><input type="checkbox" id="f-submit" checked> 바로 상신 (submit for approval)</label>
+    </div>
+    <div class="note mt" id="f-preview"></div>
+    <div class="row mt" style="justify-content:flex-end"><button class="btn teal" id="f-go">{{ icon('arrow') }} Create request</button></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const K = GridCharts, C = K.C, $ = (id) => document.getElementById(id);
+  const I = {{ d['items']|tojson }};
+  K.columns("c-bud", I.map((i) => i.code), [
+    { name: "Budget", data: I.map((i) => i.budget), color: "#2a2d34" },
+    { name: "Actual YTD", data: I.map((i) => i.actual_ytd), color: C.teal },
+    { name: "Forecast FY", data: I.map((i) => ({ y: i.forecast_fy, color: i.status === "over" ? C.crit : i.status === "watch" ? C.amber : C.steel })), color: C.steel }],
+    { pointFormatter() { return `<span style="color:${this.color}">●</span> ${this.series.name} <b>${Grid.fmt.krw(this.y)}</b><br>`; }, yFormatter: (v) => Grid.fmt.krw(v) });
+  // request filter
+  const filt = (f) => document.querySelectorAll(".req").forEach((r) => r.classList.toggle("hide", f !== "all" && !r.classList.contains(f)));
+  document.querySelectorAll("#rq-f button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#rq-f button").forEach((x) => x.classList.toggle("on", x === b)); filt(b.dataset.f); }));
+  filt("open");
+  // form
+  let kind = "transfer";
+  const KO = {{ d.kinds|tojson }};
+  function form() {
+    document.querySelectorAll(".f-src").forEach((e) => e.classList.toggle("hide", kind === "new_item"));
+    document.querySelectorAll(".f-dst").forEach((e) => e.classList.toggle("hide", kind !== "transfer"));
+    document.querySelectorAll(".f-new").forEach((e) => e.classList.toggle("hide", kind !== "new_item"));
+    $("f-amt-h").textContent = Grid.fmt.krw(+$("f-amt").value || 0);
+    const it = I.find((i) => i.code === $("f-src").value), to = I.find((i) => i.code === $("f-dst").value), a = +$("f-amt").value || 0;
+    const fx = (x) => Grid.fmt.krw(x);
+    $("f-preview").innerHTML = kind === "transfer" ? `<b>${KO[kind].ko}</b> · ${it.code} ${fx(it.budget)} → ${fx(it.budget - a)} &nbsp;|&nbsp; ${to.code} ${fx(to.budget)} → ${fx(to.budget + a)}`
+      : kind === "increase" ? `<b>${KO[kind].ko}</b> · ${it.code} ${fx(it.budget)} → ${fx(it.budget + a)} · forecast headroom ${fx(it.budget + a - it.forecast_fy)}`
+      : kind === "refund" ? `<b>${KO[kind].ko}</b> · ${it.code} ${fx(it.budget)} → ${fx(it.budget - a)} · returned to the FY pool`
+      : `<b>${KO[kind].ko}</b> · creates a new OPX-4xx item funded with ${fx(a)} on final approval`;
+  }
+  document.querySelectorAll("#kind button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#kind button").forEach((x) => x.classList.toggle("on", x === b)); kind = b.dataset.k; form(); }));
+  ["f-src", "f-dst", "f-amt"].forEach((i) => $(i).addEventListener("input", form));
+  form();
+  document.querySelectorAll("[data-prefill]").forEach((b) => b.addEventListener("click", () => {
+    const p = JSON.parse(b.dataset.prefill); kind = p.kind; $("f-src").value = p.source;
+    document.querySelectorAll("#kind button").forEach((x) => x.classList.toggle("on", x.dataset.k === kind)); form(); $("new").scrollIntoView({ behavior: "smooth" });
+  }));
+  $("f-go").addEventListener("click", async () => {
+    const body = { kind, amount: +$("f-amt").value, team: $("f-team").value, reason: $("f-reason").value, submit: $("f-submit").checked };
+    if (kind !== "new_item") body.source = $("f-src").value;
+    if (kind === "transfer") body.target = $("f-dst").value;
+    if (kind === "new_item") { body.new_name = $("f-name").value; body.category = $("f-cat").value; }
+    try { const r = await Grid.postJSON("/api/cost/budget/requests", body); Grid.toast("ok", `${r.kind_ko} ${r.id} created`, Grid.fmt.krw(r.amount)); setTimeout(() => (location.hash = r.id, location.reload()), 600); }
+    catch (e) { Grid.toast("critical", "Request rejected", e.message); }
+  });
+  document.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", async () => {
+    const reject = b.dataset.act.endsWith("/reject");
+    if (reject && !confirm("이 요청을 반려할까요? Reject this request?")) return;
+    try { const r = await Grid.postJSON("/api/cost/budget/requests/" + b.dataset.act, {}); Grid.toast(reject ? "warning" : "ok", `${r.id} → ${r.status}`, r.kind_ko); setTimeout(() => location.reload(), 500); }
+    catch (e) { Grid.toast("critical", "Failed", e.message); }
+  }));
+  if (location.hash) { const el = document.querySelector(location.hash); if (el) { el.classList.remove("hide"); el.classList.add("flash"); el.scrollIntoView({ block: "center" }); } }
+})();
+</script>
+{% endblock %}

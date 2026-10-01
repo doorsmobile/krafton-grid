@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, pill, head %}
+{% block content %}
+{% set on = d.relays|selectattr('enabled')|list %}
+<div class="page-head">
+  <div><h1>Telemetry Relay</h1><p>Forward Grid metrics, logs and events to external platforms without touching the collectors: OTLP to Grafana Cloud, the Datadog API for GPU Monitoring, Splunk HEC for the SOC, and a Parquet cold archive on GCS. Toggle a destination to pause or resume it.</p></div>
+  <div class="page-actions"><a class="btn" href="/cloud/gcp/bucket/kg-telemetry-coldline">Cold archive bucket</a></div>
+</div>
+<div class="g g-4">
+  <div class="panel tight">{{ kpi('Destinations active', on|length, '/ ' ~ d.relays|length, '', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Events forwarded', '{:,}'.format(on|sum(attribute='eps')), '/s', 'all destinations', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Egress', (on|sum(attribute='mb_s'))|num(2), 'MB/s', 'compressed', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Worst lag', (on|map(attribute='lag_ms')|max if on else 0), 'ms', 'p95 end-to-end', size='s') }}</div>
+</div>
+<div class="g g-2 mt">
+  {% for r in d.relays %}
+  <div class="panel" id="relay-{{ r.id }}">
+    <div class="panel-head"><div><div class="panel-title">{{ r.name }}</div><div class="panel-sub">{{ r.protocol }} · {{ r.signals|join(' · ') }}</div></div>
+      <button class="switch {{ 'on' if r.enabled else '' }}" data-relay="{{ r.id }}" aria-label="toggle {{ r.name }}"></button></div>
+    <div class="kv">
+      <span>Endpoint</span><span class="mono xs">{{ r.endpoint }}</span>
+      <span>Filter</span><span class="mono xs">{{ r.filter }}</span>
+      <span>Throughput</span><span>{{ '{:,}'.format(r.eps) }} ev/s · {{ r.mb_s }} MB/s</span>
+      <span>Lag</span><span>{{ r.lag_ms ~ ' ms' if r.lag_ms else '—' }}</span>
+      <span>Dropped</span><span>{{ r.dropped_pct }}%</span>
+      <span>Status</span><span>{{ pill('ok' if r.enabled else 'idle', 'forwarding' if r.enabled else 'paused') }}</span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<div class="panel mt">
+  {{ head('Collector config', 'generated · OpenTelemetry Collector') }}
+  <pre class="code">exporters:
+{% for r in d.relays if r.enabled %}  <span class="k">{{ r.id }}</span>:
+    endpoint: <span class="s">"{{ r.endpoint }}"</span>
+    signals: [{{ r.signals|join(', ') }}]
+    filter: <span class="s">'{{ r.filter }}'</span>
+{% endfor %}service:
+  pipelines:
+    metrics: { receivers: [prometheus/grid], processors: [batch, memory_limiter], exporters: [{{ d.relays|selectattr('enabled')|selectattr('signals', 'contains', 'metrics')|map(attribute='id')|join(', ') }}] }
+    logs:    { receivers: [otlp/grid],       processors: [batch],                 exporters: [{{ d.relays|selectattr('enabled')|selectattr('signals', 'contains', 'logs')|map(attribute='id')|join(', ') }}] }</pre>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll("[data-relay]").forEach((b) => b.addEventListener("click", async () => {
+  const on = !b.classList.contains("on");
+  try { await Grid.postJSON("/api/observability/relay/" + b.dataset.relay, { enabled: on }); b.classList.toggle("on", on); Grid.toast("ok", `${b.dataset.relay} ${on ? "resumed" : "paused"}`); setTimeout(() => location.reload(), 500); }
+  catch (e) { Grid.toast("critical", "Relay update failed", e.message); }
+}));
+</script>
+{% endblock %}

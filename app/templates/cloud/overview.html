@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head, chead %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Cloud</h1><p>Hybrid capacity in fixed order <b>AWS → GCP → NHN</b>: AWS for GPUaaS and burst (EC2 Capacity Blocks), GCP for dataset mirrors and checkpoint DR, NHN Cloud for in-country GPU serving. Live burn rate, month-to-date and the cost of a GPU-hour versus on-prem.</p></div>
+  <div class="page-actions"><a class="btn" href="/cost/cloud">Cloud cost</a><a class="btn" href="/platform/simulation?run=cloud-burst">Simulate burst</a></div>
+</div>
+<div class="g g-4">
+  <div class="panel tight">{{ kpi('Cloud burn rate', d.total_cost_hr_krw|krw, '/ h', 'AWS · GCP · NHN combined', live='cloud.total_cost_hr_krw', fmt='krw', spark='sp-burn', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Month to date', (d.mtd.values()|sum)|krw, '', 'forecast ' ~ (d.forecast.values()|sum)|krw, size='s') }}</div>
+  <div class="panel tight">{{ kpi('Cloud GPUs running', d.aws.gpus + d.nhn.gpus, '', 'AWS ' ~ d.aws.gpus ~ ' · NHN ' ~ d.nhn.gpus, size='s') }}</div>
+  <div class="panel tight">{{ kpi('Interconnect', (d.interconnect.aws_dx_gbps + d.interconnect.gcp_ic_gbps + d.interconnect.nhn_gbps)|num(1), 'Gb/s', 'Direct Connect · Interconnect · NHN private link', size='s') }}</div>
+</div>
+
+<div class="g g-3 mt">
+  {% set P = {
+    'aws': {'name': 'AWS', 'sub': 'GPUaaS · burst · ap-northeast-2', 'href': '/cloud/aws'},
+    'gcp': {'name': 'GCP', 'sub': 'Storage · DR · asia-northeast3', 'href': '/cloud/gcp'},
+    'nhn': {'name': 'NHN Cloud', 'sub': 'GPUaaS · KR1', 'href': '/cloud/nhn'}} %}
+  {% for k in d.order %}{% set x = d[k] %}
+  <a class="panel" href="{{ P[k].href }}">
+    {{ chead(P[k].name, P[k].sub, 'Open') }}
+    <div class="split">
+      <div><div class="xs muted">Burn rate</div><div class="kpi-value xs"><span data-live="cloud.{{ k }}.cost_hr_krw" data-fmt="krw">{{ x.cost_hr_krw|krw }}</span><span class="unit">/ h</span></div></div>
+      <div><div class="xs muted">MTD · forecast</div><div class="kpi-value xs">{{ d.mtd[k]|krw }}<span class="unit">→ {{ d.forecast[k]|krw }}</span></div></div>
+    </div>
+    <div class="kv mt">
+      {% if k == 'aws' %}
+        <span>Instances running</span><span><span data-live="cloud.aws.running">{{ x.running }}</span>{% if x.pending %} · {{ x.pending }} pending{% endif %}</span>
+        <span>GPUs · utilization</span><span>{{ x.gpus }} · <span data-live="cloud.aws.gpu_util" data-fmt="f1">{{ x.gpu_util }}</span>%</span>
+        <span>Capacity Block</span><span>{{ x.cb_used }} / {{ x.cb_capacity }} instances</span>
+        <span>Burst jobs</span><span>{{ x.burst_jobs }}</span>
+      {% elif k == 'gcp' %}
+        <span>GCS buckets</span><span>{{ x.buckets }} · {{ (x.used_tb / 1000)|num(2) }} PB</span>
+        <span>Operations</span><span><span data-live="cloud.gcp.ops_s" data-fmt="int">{{ '{:,}'.format(x.ops_s) }}</span> /s</span>
+        <span>Persistent Disks</span><span>{{ x.disks }} · {{ x.disk_tb }} TB</span>
+        <span>Egress</span><span><span data-live="cloud.gcp.egress_gbps" data-fmt="f2">{{ x.egress_gbps }}</span> Gb/s</span>
+      {% else %}
+        <span>Instances active</span><span>{{ x.active }} / {{ x.instances }}</span>
+        <span>GPUs · utilization</span><span>{{ x.gpus }} · <span data-live="cloud.nhn.gpu_util" data-fmt="f1">{{ x.gpu_util }}</span>%</span>
+        <span>Private link</span><span>{{ x.link_gbps }} Gb/s</span>
+        <span>Today</span><span>{{ d.today_krw.nhn|krw }}</span>
+      {% endif %}
+    </div>
+  </a>
+  {% endfor %}
+</div>
+
+<div class="g g-12 mt">
+  <div class="panel s-8">{{ head('Burn rate by provider', '₩/h · 60 min · stacked') }}<div class="chart m" id="c-burn"></div></div>
+  <div class="panel s-4">
+    {{ head('Cost of one GPU-hour', 'on-prem TCO vs rented') }}
+    {% set mx = [d.gpu_hr_krw.aws, d.gpu_hr_krw.nhn, d.gpu_hr_krw.on_prem]|max %}
+    {% for lab, v, cls in [('Grid on-prem (B300, TCO incl. CAPEX)', d.gpu_hr_krw.on_prem, ''), ('NHN Cloud H100', d.gpu_hr_krw.nhn, 'steel'), ('AWS p6-b200 Capacity Block', d.gpu_hr_krw.aws, 'steel')] %}
+    <div class="meter mb"><span class="small">{{ lab }}</span><span class="mono small">{{ v|krw }}</span>{{ bar(v / mx * 100, cls) }}</div>
+    {% endfor %}
+    <div class="note mt">On-prem is <b>{{ (d.gpu_hr_krw.aws / (d.gpu_hr_krw.on_prem or 1))|num(1) }}×</b> cheaper than AWS per GPU-hour at current utilization — burst only when the queue wait would cost more than the premium.</div>
+  </div>
+</div>
+
+<div class="g g-12 mt">
+  <div class="panel s-7">{{ head('Monthly cloud spend', 'AWS → GCP → NHN · current month partial', '/cost/cloud', 'Cost') }}<div class="chart m" id="c-month"></div></div>
+  <div class="panel s-5 flush">
+    {{ head('Burst to AWS', 'on-prem queue → Capacity Block', '/cloud/aws', 'AWS') }}
+    <table class="t"><thead><tr><th>Job</th><th>Project</th><th class="right">GPUs</th><th class="right">Instances</th><th>At</th></tr></thead><tbody>
+      {% for b in d.burst %}<tr data-href="/gpu-fleet/job/{{ b.job }}"><td><b class="small">{{ b.name }}</b> <span class="mono xs muted">#{{ b.job }}</span></td><td class="small">{{ b.project }}</td><td class="right">{{ b.gpus }}</td><td class="right">{{ b.instances }}</td><td class="mono small">{{ b.t|kst }}</td></tr>
+      {% else %}<tr><td colspan="5" class="empty">No burst yet. The scheduler bursts training jobs that wait &gt; 60 s (40 s under surge) when the Capacity Block has room.</td></tr>{% endfor %}
+    </tbody></table>
+    <div class="section-title" style="padding:0 16px">Capacity Blocks</div>
+    <table class="t"><tbody>
+      {% for cb in d.capacity_blocks %}<tr><td class="mono small">{{ cb.id }}</td><td class="small">{{ cb.count }} × {{ cb.type }}</td><td class="small muted">{{ cb.az }}</td><td>{{ pill('ok' if cb.status == 'active' else 'info', cb.status) }}</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</div>
+
+<div class="g g-3 mt">
+  <div class="panel flush">{{ head('AWS · busiest instances', 'by cost × util', '/cloud/aws', 'All') }}
+    <table class="t"><tbody>{% for i in d.top.aws %}<tr data-href="/cloud/aws/instance/{{ i.id }}"><td><b class="small">{{ i.name }}</b><div class="xs mono muted">{{ i.id }}</div></td><td class="small">{{ i.type }}</td><td class="right">{{ i.util }}%</td></tr>{% endfor %}</tbody></table></div>
+  <div class="panel flush">{{ head('GCP · busiest buckets', 'class A + B ops/s', '/cloud/gcp', 'All') }}
+    <table class="t"><tbody>{% for b in d.top.gcp %}<tr data-href="/cloud/gcp/bucket/{{ b.name }}"><td><b class="small mono">{{ b.name }}</b><div class="xs muted">{{ b.purpose }}</div></td><td><span class="tag">{{ b.class }}</span></td><td class="right">{{ '{:,.0f}'.format(b.ops_a_s + b.ops_b_s) }}</td></tr>{% endfor %}</tbody></table></div>
+  <div class="panel flush">{{ head('NHN · busiest instances', 'GPU util', '/cloud/nhn', 'All') }}
+    <table class="t"><tbody>{% for n in d.top.nhn %}<tr data-href="/cloud/nhn/instance/{{ n.id }}"><td><b class="small">{{ n.name }}</b><div class="xs mono muted">{{ n.flavor }}</div></td><td class="small">{{ n.project }}</td><td class="right">{{ n.util }}%</td></tr>{% endfor %}</tbody></table></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C;
+  const [aws, gcp, nhn] = await K.seriesMulti("cloud_cost_hr_krw", [0, 1, 2], { minutes: 60 });
+  const krwFmt = function () { return `<span style="color:${this.color}">●</span> ${this.series.name} <b>${Grid.fmt.krw(this.y)}</b><br>`; };
+  const burn = K.area("c-burn", [{ name: "AWS", data: aws, color: C.teal }, { name: "GCP", data: gcp, color: C.steel }, { name: "NHN", data: nhn, color: C.violet }],
+    { stacking: "normal", pointFormatter: krwFmt, yFormatter: (v) => Grid.fmt.krw(v), min: 0 });
+  const sp = K.spark("sp-burn", aws.map((p, i) => [p[0], p[1] + (gcp[i] ? gcp[i][1] : 0) + (nhn[i] ? nhn[i][1] : 0)]), { color: C.teal, tooltip: false });
+  const M = {{ d.months|tojson }};
+  K.columns("c-month", M.map((m) => m.month + (m.partial ? " (MTD)" : "")),
+    [{ name: "AWS", data: M.map((m) => m.aws), color: C.teal }, { name: "GCP", data: M.map((m) => m.gcp), color: C.steel }, { name: "NHN", data: M.map((m) => m.nhn), color: C.violet }],
+    { stacking: "normal", pointFormatter: krwFmt, yFormatter: (v) => Grid.fmt.krw(v) });
+  Grid.onLive((L) => { const ms = L.ts * 1000; K.push(burn, 0, ms, L.cloud.aws.cost_hr_krw); K.push(burn, 1, ms, L.cloud.gcp.cost_hr_krw); K.push(burn, 2, ms, L.cloud.nhn.cost_hr_krw); K.push(sp, 0, ms, L.cloud.total_cost_hr_krw); });
+})();
+</script>
+{% endblock %}

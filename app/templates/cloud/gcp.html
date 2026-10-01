@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set s = d.summary %}
+<div class="page-head">
+  <div><h1>GCP · Storage</h1><p>Google Cloud in asia-northeast3 (Seoul): GCS buckets for dataset mirrors, checkpoint DR and telemetry cold archive; Hyperdisk / Persistent Disk behind the transfer VMs; nightly checkpoint DR over Cloud Interconnect.</p></div>
+  <div class="page-actions"><a class="btn" href="/cloud">Cloud overview</a><a class="btn" href="/observability/telemetry-relay">Telemetry relay</a></div>
+</div>
+<div class="g g-5">
+  <div class="panel tight">{{ kpi('Stored', (s.used_tb / 1000)|num(2), 'PB', s.buckets ~ ' buckets', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Operations', '{:,}'.format(s.ops_s), '/s', 'class A + B', live='cloud.gcp.ops_s', fmt='int', spark='sp-ops', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Egress', s.egress_gbps, 'Gb/s', 'CDN origin + dataset pulls', live='cloud.gcp.egress_gbps', fmt='f2', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Interconnect in', s.ic_gbps, 'Gb/s', 'DR replication', live='cloud.gcp.ic_gbps', fmt='f1', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Burn rate', s.cost_hr_krw|krw, '/ h', 'storage + ops + egress + disks', live='cloud.gcp.cost_hr_krw', fmt='krw', size='s') }}</div>
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-8 flush">
+    {{ head('GCS buckets', 'click for lifecycle and cost') }}
+    <table class="t" data-sortable><thead><tr><th>Bucket</th><th>Class</th><th>Location</th><th class="right">Size</th><th class="right">Objects</th><th class="right">Ops/s</th><th class="right">Ingress</th><th class="right">Egress</th><th>Purpose</th></tr></thead><tbody>
+      {% for b in d.buckets %}<tr data-href="/cloud/gcp/bucket/{{ b.name }}"><td class="mono small"><b>{{ b.name }}</b></td><td><span class="tag {{ 'teal' if b['class'] == 'STANDARD' else '' }}">{{ b['class'] }}</span></td><td class="small muted">{{ b.location }}</td>
+        <td class="right">{{ (b.size_tb / 1000)|num(2) if b.size_tb >= 1000 else b.size_tb|num(1) }} {{ 'PB' if b.size_tb >= 1000 else 'TB' }}</td><td class="right">{{ b.objects_m|num(1) }} M</td><td class="right">{{ '{:,.0f}'.format(b.ops_a_s + b.ops_b_s) }}</td>
+        <td class="right">{{ b.ingress_gbps }} Gb/s</td><td class="right">{{ b.egress_gbps }} Gb/s</td><td class="xs muted">{{ b.purpose }}</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+  <div class="panel s-4">
+    {{ head('Checkpoint DR transfer', 'Storage Transfer Service · nightly') }}
+    {% set tr = d.transfer %}
+    <div class="row between"><span class="mono small"><b>{{ tr.job }}</b></span>{{ pill(tr.status) }}</div>
+    <div class="meter mt"><span class="xs">Progress</span><span class="xs mono">{{ (tr.progress * 100)|num(1) }}%</span>{{ bar(tr.progress * 100, size='lg') }}</div>
+    <div class="kv mt"><span>Rate</span><span>{{ tr.rate_gbps }} Gb/s</span><span>Source</span><span class="mono xs">ss-capacity:/ckpt</span><span>Destination</span><span class="mono xs">gs://kg-ckpt-archive</span><span>RPO target</span><span>24 h</span></div>
+    <div class="section-title">Storage mix</div>
+    <div class="chart s" id="c-mix"></div>
+  </div>
+</div>
+<div class="panel mt flush">
+  {{ head('Persistent Disks & Hyperdisk', 'attached to transfer VMs') }}
+  <table class="t" data-sortable><thead><tr><th>Disk</th><th>Type</th><th>Zone</th><th class="right">Size</th><th>Used</th><th class="right">IOPS</th><th class="right">MB/s</th><th>Attached</th><th>Status</th></tr></thead><tbody>
+    {% for x in d.disks %}<tr data-href="/cloud/gcp/disk/{{ x.id }}"><td class="mono small"><b>{{ x.name }}</b></td><td><span class="tag">{{ x.type }}</span></td><td class="small muted">{{ x.zone }}</td><td class="right">{{ (x.size_gb / 1000)|num(0) }} TB</td>
+      <td><div class="cell-bar">{{ bar(x.used_pct, warn=85, crit=95) }}<span class="xs muted">{{ x.used_pct|num(0) }}%</span></div></td><td class="right">{{ '{:,.0f}'.format(x.iops) if x.iops_limit else '—' }}</td><td class="right">{{ '{:,.0f}'.format(x.mbps) }}</td><td class="mono small">{{ x.attached }}</td><td>{{ pill('ok', x.status) }}</td></tr>{% endfor %}
+  </tbody></table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C;
+  const B = {{ d.buckets|tojson }};
+  const by = {}; B.forEach((b) => (by[b["class"]] = (by[b["class"]] || 0) + b.size_tb));
+  K.donut("c-mix", Object.entries(by).map(([k, v], i) => ({ name: k, y: v, color: [C.teal, C.steel, C.violet, C.steel2][i % 4] })), { pointFormatter() { return `<b>${Grid.fmt.num(this.y / 1000, 2)} PB</b> (${this.percentage.toFixed(1)}%)`; } });
+  const sp = K.spark("sp-ops", [], { color: C.teal });
+  Grid.onLive((L) => K.push(sp, 0, L.ts * 1000, L.cloud.gcp.ops_s, 60));
+})();
+</script>
+{% endblock %}

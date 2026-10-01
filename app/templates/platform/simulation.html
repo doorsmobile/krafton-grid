@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head, icon %}
+{% block content %}
+{% set S = d.scenarios %}
+<div class="page-head">
+  <div><h1>Simulation</h1><p>Drive the digital twin. Scenarios inject a physical fault or load change; everything downstream — coolant temperatures, GPU throttling, job slowdown, alerts, incident correlation, Slack payloads, cost — follows from the models, not from a script. Watch the cause → effect panel while one runs.</p></div>
+  <div class="page-actions"><a class="btn" href="/api/sim/export.json">{{ icon('download') }} Export JSON</a><a class="btn" href="/alerts">Alerts</a></div>
+</div>
+{% set pick = S.catalog|selectattr('id', 'equalto', run)|first if run else None %}
+{% if pick %}
+<div class="banner" id="run-banner"><b>Ready:</b><span>{{ pick.name }} — {{ pick.desc }}</span><button class="btn teal sm" style="margin-left:auto" data-start="{{ pick.id }}">{{ icon('play') }} Start now</button></div>
+{% endif %}
+<div class="g g-5">
+  <div class="panel tight">{{ kpi('Mode', S.mode, '', S.modes[S.mode], live='mode', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Active scenarios', S.active|length, '', (S.active|map(attribute='name')|join(', ')) or 'none', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Tick', d.tick, '', d.tick_ms ~ ' ms compute · every ' ~ d.tick_s ~ ' s', live='tick', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Uptime', d.uptime_s|dur, '', 'seed ' ~ d.seed, size='s') }}</div>
+  <div class="panel tight">{{ kpi('TSDB', d.tsdb.metrics, 'metrics', '{:,}'.format(d.tsdb.series) ~ ' series', size='s') }}</div>
+</div>
+
+<div class="g g-12 mt">
+  <div class="panel s-7">
+    {{ head('Cause → effect', 'live · updates every tick') }}
+    <div class="g g-4" style="gap:10px">
+      <div class="mini">{{ kpi('Coolant supply max', live.cooling.tcs_supply_max_c|num(1), '°C', 'row TCS', live='cooling.tcs_supply_max_c', fmt='f1', size='xs') }}</div>
+      <div class="mini">{{ kpi('GPU max temp', live.gpu.max_temp|num(1), '°C', 'throttle 87', live='gpu.max_temp', fmt='f1', size='xs') }}</div>
+      <div class="mini">{{ kpi('Throttling GPUs', live.gpu.thermal_throttle, '', 'thermal', live='gpu.thermal_throttle', fmt='int', size='xs') }}</div>
+      <div class="mini">{{ kpi('PUE', live.site.pue|num(3), '', 'target ' ~ TARGET_PUE, live='site.pue', fmt='f3', size='xs') }}</div>
+      <div class="mini">{{ kpi('Power redundancy', live.power.redundancy, '', 'UPS · gensets <span data-live="power.gens_running">' ~ live.power.gens_running ~ '</span>', live='power.redundancy', size='xs') }}</div>
+      <div class="mini">{{ kpi('Hot-tier latency', live.storage.latency_ms|num(2), 'ms', 'Scale ss-hot', live='storage.latency_ms', fmt='f2', size='xs') }}</div>
+      <div class="mini">{{ kpi('IB links down', live.network.ib_links_down, '', 'UFM', live='network.ib_links_down', fmt='int', size='xs') }}</div>
+      <div class="mini">{{ kpi('Alerts firing', live.alerts.firing, '', '<span data-live="alerts.incidents_open">' ~ live.alerts.incidents_open ~ '</span> incidents', live='alerts.firing', fmt='int', size='xs') }}</div>
+    </div>
+    <div class="chart m mt" id="c-watch"></div>
+  </div>
+  <div class="panel s-5">
+    {{ head('Running now') }}
+    <div id="active">
+    {% for a in S.active %}
+      <div class="mini mb"><div class="row between"><b class="small">{{ a.name }}</b><button class="btn sm danger" data-stop="{{ a.id }}">{{ icon('stop') }} Stop</button></div>
+        <div class="meter mt-s"><span class="xs muted">{{ a.domain }} · {{ a.remaining_s|dur }} left</span><span class="xs mono">{{ a.progress }}%</span>{{ bar(a.progress) }}</div></div>
+    {% else %}<div class="empty">No scenario running. Pick one below.</div>{% endfor %}
+    </div>
+    <div class="section-title">Operating mode</div>
+    <div class="seg" id="mode">{% for k, v in S.modes.items() %}<button class="{{ 'on' if k == S.mode else '' }}" data-mode="{{ k }}" title="{{ v }}">{{ k }}</button>{% endfor %}</div>
+    <div class="xs muted mt-s" id="mode-desc">{{ S.modes[S.mode] }}</div>
+    <div class="section-title">History</div>
+    <div class="list">{% for h in S.history[:8] %}<div class="stat-line"><span class="small">{{ h.name }}</span><span class="xs mono muted">{{ h.started|kst }} {{ pill(h.state) }}</span></div>{% else %}<div class="xs muted">No runs yet.</div>{% endfor %}</div>
+  </div>
+</div>
+
+<div class="section-title mt">Scenario catalog · {{ S.catalog|length }}</div>
+<div class="g g-3">
+  {% for s in S.catalog %}
+  <div class="panel scen {{ 'picked' if run == s.id else '' }}" id="scn-{{ s.id }}">
+    <div class="panel-head"><div><div class="panel-title">{{ s.name }}</div><div class="panel-sub">{{ s.domain }} · {{ s.duration_s|dur }}{% if s.faults %} · <span class="mono">{{ s.faults|join(', ') }}</span>{% endif %}</div></div>
+      {% if S.active|selectattr('id', 'equalto', s.id)|list %}<button class="btn sm danger" data-stop="{{ s.id }}">Stop</button>{% else %}<button class="btn sm teal" data-start="{{ s.id }}">{{ icon('play') }} Start</button>{% endif %}</div>
+    <div class="small">{{ s.desc }}</div>
+    <div class="xs muted mt-s"><b>Root cause:</b> {{ s.root_cause }}</div>
+    {% if s.impact %}<div class="xs muted mt-s"><b>Impact:</b> {{ s.impact }}</div>{% endif %}
+    <div class="row wrap mt-s" style="gap:4px">{% for a in s.affects %}<span class="tag">{{ a }}</span>{% endfor %}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="g g-2 mt">
+  <div class="panel">
+    {{ head('Inject a manual alert', 'fans out through routing → Slack / webhook (dry-run unless live delivery is on)') }}
+    <div class="form-grid">
+      <label for="a-sev">Severity</label><select class="input" id="a-sev"><option>warning</option><option>critical</option><option>info</option></select>
+      <label for="a-cat">Category</label><select class="input" id="a-cat">{% for c in ['facility.power','facility.cooling','it.gpu','it.network','it.storage','it.k8s','cloud','cost','platform'] %}<option {{ 'selected' if c == 'platform' else '' }}>{{ c }}</option>{% endfor %}</select>
+      <label for="a-title">Title</label><input class="input" id="a-title" value="Manual test alert">
+      <label for="a-text">Text</label><input class="input" id="a-text" value="Injected from the Simulation console">
+      <label for="a-ent">Entities</label><input class="input mono" id="a-ent" placeholder="e.g. R07, CDU-A2">
+    </div>
+    <div class="row between mt"><button class="btn sm" id="a-clear">Resolve manual alerts</button><button class="btn teal" id="a-send">Inject alert</button></div>
+  </div>
+  <div class="panel flush">
+    {{ head('Read-model store', d.redis.mode ~ ' · ' ~ d.redis.url ~ ' · ' ~ d.prefix ~ ':* — everything the web tier shows is read from here') }}
+    {% if d.redis.ok %}
+    {% set m = d.meta %}
+    <div class="xs muted" style="padding:0 16px 8px">{{ d.redis.total_keys }} keys · {{ d.redis.used_memory_human }} · collector <span class="mono">{{ m.owner }}</span> ·
+      tick {{ m.tick }} · build {{ m.build_ms }} ms · {{ ((m.bytes or 0) / 1e6)|num(2) }} MB last publish</div>
+    <div class="table-wrap scroll-s"><table class="t"><thead><tr><th>Key</th><th>Type</th><th class="right">Size</th><th class="right">TTL</th></tr></thead><tbody>
+      {% for k in d.redis['keys'] %}<tr><td class="mono xs">{{ k.key }}</td><td><span class="tag">{{ k.type }}</span></td><td class="right">{{ k.size if k.size is not none else '—' }}</td><td class="right">{{ k.ttl if k.ttl >= 0 else '∞' }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% else %}<div class="empty">Store unavailable ({{ d.redis.error }}).</div>{% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C;
+  const post = async (url, body, ok) => { try { await Grid.postJSON(url, body); Grid.toast("ok", ok, url); setTimeout(() => location.reload(), 700); } catch (e) { Grid.toast("critical", "Failed", e.message); } };
+  document.querySelectorAll("[data-start]").forEach((b) => b.addEventListener("click", () => post(`/api/sim/scenario/${b.dataset.start}/start`, {}, "Scenario started")));
+  document.querySelectorAll("[data-stop]").forEach((b) => b.addEventListener("click", () => post(`/api/sim/scenario/${b.dataset.stop}/stop`, {}, "Scenario stopped")));
+  document.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => post("/api/sim/mode", { mode: b.dataset.mode }, "Mode → " + b.dataset.mode)));
+  document.getElementById("a-send").addEventListener("click", () => post("/api/sim/alert", { severity: document.getElementById("a-sev").value, category: document.getElementById("a-cat").value,
+    title: document.getElementById("a-title").value, text: document.getElementById("a-text").value, entities: document.getElementById("a-ent").value }, "Alert injected"));
+  document.getElementById("a-clear").addEventListener("click", () => post("/api/sim/alert/clear", {}, "Manual alerts resolved"));
+  const picked = document.querySelector(".scen.picked"); if (picked) picked.scrollIntoView({ block: "center", behavior: "smooth" });
+  const [tq, gmax, pue] = await Promise.all([Grid.postJSON("/api/observability/metrics/query", { query: "max(cooling_tcs_supply_c)", window_minutes: 15 }),
+    K.series("gpu_temp_max", { minutes: 15 }), K.series("site_pue", { minutes: 15 })]);
+  const tcs = tq.result && tq.result[0] ? tq.result[0].values : [];
+  const ch = K.line("c-watch", [{ name: "coolant supply max °C", data: tcs, color: C.teal }, { name: "GPU max °C", data: gmax, color: C.amber }, { name: "PUE", data: pue, color: C.steel, yAxis: 1 }],
+    { y2: "PUE", decimals: 2, plotLines: [{ value: 87, color: C.crit, width: 1, dashStyle: "Dash", label: { text: "throttle 87 °C", style: { color: C.crit, fontSize: "10px" } } }] });
+  Grid.onLive((L) => { const ms = L.ts * 1000; K.push(ch, 0, ms, L.cooling.tcs_supply_max_c); K.push(ch, 1, ms, L.gpu.max_temp); K.push(ch, 2, ms, L.site.pue); });
+})();
+</script>
+{% endblock %}

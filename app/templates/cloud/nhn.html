@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set s = d.summary %}
+<div class="page-head">
+  <div><h1>NHN Cloud · GPUaaS</h1><p>In-country GPU instances (KR1 region) for latency-sensitive serving and data that must stay domestic. Private link to the Grid border leaves; billed per hour in KRW.</p></div>
+  <div class="page-actions"><a class="btn" href="/cloud">Cloud overview</a></div>
+</div>
+<div class="g g-5">
+  <div class="panel tight">{{ kpi('Instances active', s.active, '/ ' ~ s.instances, 'KR1-A · KR1-B', live='cloud.nhn.active', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('GPUs', s.gpus, '', 'H100 · A100 · L40S', live='cloud.nhn.gpus', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('GPU utilization', s.gpu_util, '%', 'active instances', live='cloud.nhn.gpu_util', fmt='f1', spark='sp-util', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Burn rate', s.cost_hr_krw|krw, '/ h', 'on-demand KRW', live='cloud.nhn.cost_hr_krw', fmt='krw', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Private link', s.link_gbps, 'Gb/s', 'to border leaves', live='cloud.nhn.link_gbps', fmt='f1', size='s') }}</div>
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-8">{{ head('GPU utilization', 'AWS vs NHN · 60 min') }}<div class="chart m" id="c-nhn"></div></div>
+  <div class="panel s-4">
+    {{ head('Flavors', 'hourly KRW') }}
+    {% set fl = {} %}{% for n in d.instances %}{% set _ = fl.update({n.flavor: fl.get(n.flavor, 0) + 1}) %}{% endfor %}
+    <table class="t"><thead><tr><th>Flavor</th><th>GPU</th><th class="right">₩/h</th><th class="right">Count</th></tr></thead><tbody>
+      {% for n in d.instances|unique(attribute='flavor') %}<tr><td class="mono small">{{ n.flavor }}</td><td class="small">{{ n.gpus }} × {{ n.gpu }}</td><td class="right">{{ '{:,}'.format(n.krw_hr) }}</td><td class="right">{{ fl[n.flavor] }}</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</div>
+<div class="panel mt flush">
+  {{ head('Instances', d.instances|length ~ ' total') }}
+  <table class="t" data-sortable><thead><tr><th>Instance</th><th>Name</th><th>Flavor</th><th>Zone</th><th>Project</th><th>Status</th><th class="right">GPU util</th><th class="right">GPU mem</th><th class="right">₩/h</th><th class="right">Uptime</th></tr></thead><tbody>
+    {% for n in d.instances %}<tr data-href="/cloud/nhn/instance/{{ n.id }}" class="{{ 'crit' if n.status != 'ACTIVE' else '' }}"><td class="mono small">{{ n.id }}</td><td><b class="small">{{ n.name }}</b></td><td class="mono small">{{ n.flavor }}</td><td class="small muted">{{ n.zone }}</td><td class="small">{{ n.project }}</td>
+      <td>{{ pill('ok' if n.status == 'ACTIVE' else 'critical', n.status) }}</td><td class="right">{{ n.util }}%</td><td class="right">{{ n.gpu_mem_pct }}%</td><td class="right">{{ '{:,}'.format(n.krw_hr) }}</td><td class="right">{{ (live.ts - n.launched)|dur }}</td></tr>{% endfor %}
+  </tbody></table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C;
+  const [a, n] = await K.seriesMulti("cloud_gpu_util", [0, 1], { minutes: 60 });
+  const sp = K.spark("sp-util", n.slice(-60), { color: C.teal, unit: "%" });
+  const ch = K.line("c-nhn", [{ name: "NHN", data: n, color: C.teal, type: "areaspline" }, { name: "AWS", data: a, color: C.steel }], { min: 0, max: 100, unit: "%", decimals: 1 });
+  Grid.onLive((L) => { const ms = L.ts * 1000; K.push(sp, 0, ms, L.cloud.nhn.gpu_util); K.push(ch, 0, ms, L.cloud.nhn.gpu_util); K.push(ch, 1, ms, L.cloud.aws.gpu_util); });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set dev = d.device %}{% set st = d.state %}{% set raw = d.raw or {} %}
+<div class="page-head">
+  <div><h1 class="row">{{ dev.id }} {{ pill(st.status) }}</h1><p>{{ dev.name }} · {{ dev.vendor }}{% if dev.hall %} · {{ dev.hall }}{% endif %}{% if dev.row %} · row {{ dev.row }}{% endif %} · capacity {{ dev.capacity_mw }} MW</p></div>
+  <div class="page-actions"><a class="btn" href="/facility/cooling">← Cooling</a>{% if dev.kind == 'cdu' %}<a class="btn" href="/platform/simulation?run={{ 'cdu-failure' if dev.id == 'CDU-A2' else 'cdu-double' }}">Simulate failure</a>{% endif %}</div>
+</div>
+{% if st.status == 'failed' %}<div class="banner"><b>{{ dev.id }} is down.</b>{% if dev.kind == 'cdu' %} Row {{ dev.row }} is {{ 'carried by the hall spare over the N+1 manifold' if raw.flow_lpm == 0 else 'running on residual flow — no spare path' }}.{% endif %}</div>{% endif %}
+<div class="g g-4">
+  <div class="panel tight"><div class="kpi"><div class="kpi-label">Load</div><div class="kpi-value s">{{ st.load_pct|num(1) }}<span class="unit">%</span></div>{{ bar(st.load_pct, '', warn=80, crit=95) }}</div></div>
+  {% if dev.kind == 'cdu' %}
+  <div class="panel tight">{{ kpi('Secondary supply / return', raw.supply_c|num(1) ~ ' / ' ~ raw.return_c|num(1), '°C', 'TCS loop to cold plates', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Flow · ΔP', raw.flow_lpm|num(0), 'L/min', 'ΔP ' ~ raw.dp_kpa ~ ' kPa · pump ' ~ raw.pump_pct ~ '%', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Leak detection', 'TRIPPED' if raw.leak else 'clear', '', 'rope sensor under manifold', size='s', cls='t-crit' if raw.leak else '') }}</div>
+  {% elif dev.kind == 'chiller' %}
+  <div class="panel tight">{{ kpi('Compressor power', raw.kw|num(0), 'kW', 'COP ' ~ raw.cop, size='s') }}</div>
+  <div class="panel tight">{{ kpi('Leaving water', raw.leaving_c|num(1), '°C', 'CHW setpoint 18.0 °C', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Run hours', raw.run_h|num(0), 'h', 'lead/lag rotation', size='s') }}</div>
+  {% else %}
+  <div class="panel tight">{{ kpi('Detail', st.detail, '', dev.vendor, size='xs') }}</div>
+  {% endif %}
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-8">{{ head(d.series.label if d.series else 'Trend', 'last 60 min') }}<div class="chart l" id="c-dev"></div></div>
+  <div class="panel s-4">
+    {{ head('Served load', 'what this unit cools') }}
+    {% if d.racks %}<div class="row wrap" style="gap:6px">{% for r in d.racks %}<a class="tag teal" href="/rack/{{ r }}">{{ r }}</a>{% endfor %}</div>
+    <p class="small muted mt-s">{{ d.racks|length }} racks · direct-to-chip cold plates on every B300 and CPU.</p>{% else %}<p class="small muted">Plant-level equipment — serves the whole module loop.</p>{% endif %}
+    <div class="section-title">Recent events</div>
+    <div class="timeline">{% for e in d.events %}<div class="tl-item"><span class="tl-t">{{ e.t|kst }}</span>{{ e.text }}</div>{% else %}<div class="muted small">No events for this unit.</div>{% endfor %}</div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C;
+  {% if d.series %}
+  const s = [{ name: "{{ d.series.label }}", data: await K.series("{{ d.series.metric }}", { col: {{ d.series.col or 0 }}, minutes: 60 }), color: C.teal }];
+  {% if d.load_series %}s.push({ name: "Load %", yAxis: 1, data: await K.series("{{ d.load_series.metric }}", { col: {{ d.load_series.col }}, minutes: 60 }), color: C.steel });{% endif %}
+  K.line("c-dev", s, { decimals: 1{% if d.load_series %}, y2: "%"{% endif %} });
+  {% endif %}
+})();
+</script>
+{% endblock %}

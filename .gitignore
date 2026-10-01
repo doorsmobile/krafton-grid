@@ -1,15 +1,12 @@
 __pycache__/
 *.py[cod]
 .venv/
-venv/
+.run/
 .env
 *.log
 .DS_Store
 .pytest_cache/
-.mypy_cache/
 dist/
 *.tar.gz
-*.rdb
 dump.rdb
-.run/
-
+.data/

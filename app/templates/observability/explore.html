@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import head, icon %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Explore</h1><p>Correlate on one time axis: a PromQL metric, a LogQL log volume and the unified event stream (alerts, scenarios, operator actions, XIDs). Events are drawn as markers on the metric chart — hover to read them, click a row to jump to the source.</p></div>
+  <div class="page-actions"><a class="btn" href="/observability/metrics">Metrics</a><a class="btn" href="/observability/logs">Logs</a><a class="btn" href="/platform/simulation">Inject a scenario</a></div>
+</div>
+<div class="panel">
+  <div class="form-grid" style="grid-template-columns:80px 1fr auto">
+    <label for="mq">Metric</label><input class="input mono" id="mq" value="site_pue" spellcheck="false">
+    <select class="input" id="win">{% for m, lab in [(15,'15 m'),(30,'30 m'),(60,'1 h')] %}<option value="{{ m }}" {{ 'selected' if m == 30 else '' }}>{{ lab }}</option>{% endfor %}</select>
+    <label for="lq">Logs</label><input class="input mono" id="lq" value='{level=~"warn|error"}' spellcheck="false">
+    <button class="btn teal" id="run">{{ icon('play') }} Correlate</button>
+  </div>
+  <div class="row wrap mt-s" style="gap:6px">
+    <span class="xs muted">presets:</span>
+    <button class="chip" data-m="cooling_tcs_supply_c" data-l='{service=~"cdu-modbus|bms|dcgm-exporter"}'>Cooling ↔ GPU thermals</button>
+    <button class="chip" data-m="storage_latency_ms" data-l='{service="mmfs"}'>Storage latency ↔ Scale logs</button>
+    <button class="chip" data-m="net_ib_util_pct" data-l='{service="ufm"}'>IB fabric ↔ UFM</button>
+    <button class="chip" data-m="slurm_jobs_pending" data-l='{service="slurmctld"}'>Queue ↔ Slurm</button>
+    <button class="chip" data-m="site_facility_mw" data-l='{service=~"ups-snmp|bms"}'>Power ↔ UPS/BMS</button>
+  </div>
+</div>
+<div class="panel mt">{{ head('Metric + events', 'markers = events in the window') }}<div class="chart l" id="c-m"></div></div>
+<div class="g g-12 mt">
+  <div class="panel s-5">{{ head('Log volume', 'lines per 30 s bucket') }}<div class="chart m" id="c-l"></div></div>
+  <div class="panel s-7 flush">
+    {{ head('Event stream', 'newest first') }}
+    <div class="table-wrap" style="max-height:300px"><table class="t" id="t-ev"><thead><tr><th style="width:84px">KST</th><th style="width:80px">Kind</th><th>Event</th></tr></thead><tbody></tbody></table></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const K = GridCharts, C = K.C, $ = (id) => document.getElementById(id);
+  const COL = { critical: C.crit, error: C.crit, warning: C.amber, warn: C.amber, ok: C.ok, info: C.steel };
+  const lab = (m) => Object.entries(m).filter(([k]) => k !== "__name__").map(([k, v]) => `${k}=${v}`).join(" ") || m.__name__ || "value";
+  let cm = null, cl = null;
+  async function run() {
+    const win = +$("win").value;
+    const [m, l, ev] = await Promise.all([
+      Grid.postJSON("/api/observability/metrics/query", { query: $("mq").value, window_minutes: win, max_series: 8 }).catch((e) => ({ error: e.message })),
+      Grid.postJSON("/api/observability/logs/query", { query: $("lq").value, window_minutes: win, limit: 1 }).catch((e) => ({ error: e.message })),
+      Grid.getJSON(`/api/observability/events?minutes=${win}`)]);
+    const events = ev.events;
+    const lines = events.slice(0, 40).map((e) => ({ value: e.t * 1000, color: (COL[e.level] || C.steel) + "66", width: 1, dashStyle: "Dot", zIndex: 3 }));
+    if (cm) cm.destroy();
+    if (m.error) { $("c-m").innerHTML = `<div class="note warn">${Grid.esc(m.error)}</div>`; cm = null; }
+    else {
+      const series = (m.result || []).map((s, i) => ({ name: lab(s.metric), data: s.values, color: i === 0 ? C.teal : undefined }));
+      series.push({ type: "scatter", name: "events", yAxis: 1, color: C.amber, marker: { enabled: true, symbol: "diamond", radius: 5 },
+        data: events.map((e) => ({ x: e.t * 1000, y: 0, color: COL[e.level] || C.steel, text: e.text, kind: e.kind })),
+        tooltip: { pointFormatter() { return `<b>${this.kind}</b> ${Grid.esc(this.text)}`; } } });
+      cm = Highcharts.chart("c-m", { chart: { zooming: { type: "x" } }, xAxis: { type: "datetime", plotLines: lines },
+        yAxis: [{ title: { text: null } }, { visible: false, min: 0, max: 10 }], tooltip: { shared: false, valueDecimals: 3 },
+        legend: { align: "left", verticalAlign: "top" }, series });
+    }
+    if (cl) cl.destroy();
+    if (l.error) { $("c-l").innerHTML = `<div class="note warn">${Grid.esc(l.error)}</div>`; cl = null; }
+    else {
+      const pts = l.histogram || (l.result && l.result[0].values) || [];
+      cl = K.line("c-l", [{ name: "lines", data: pts, type: "column", color: C.steel }], { legend: false, decimals: 0, xBands: [] });
+    }
+    $("t-ev").querySelector("tbody").innerHTML = events.slice(0, 120).map((e) => `<tr ${e.href ? `data-href="${e.href}"` : ""}><td class="mono xs">${Grid.fmt.kst(e.t)}</td><td>${Grid.pill(e.level, e.kind)}</td><td class="small">${Grid.esc(e.text)}</td></tr>`).join("")
+      || `<tr><td colspan="3" class="empty">No events in this window — start a scenario from Simulation.</td></tr>`;
+  }
+  $("run").addEventListener("click", run); $("win").addEventListener("change", run);
+  [$("mq"), $("lq")].forEach((x) => x.addEventListener("keydown", (e) => { if (e.key === "Enter") run(); }));
+  document.querySelectorAll("[data-m]").forEach((b) => b.addEventListener("click", () => { $("mq").value = b.dataset.m; $("lq").value = b.dataset.l; run(); }));
+  run(); setInterval(() => !document.hidden && run(), 15000);
+})();
+</script>
+{% endblock %}

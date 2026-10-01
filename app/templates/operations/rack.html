@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set r, st = d.rack, d.stats %}
+<div class="page-head">
+  <div><h1 class="row">Rack <span class="mono">{{ r.id }}</span> <span class="tag">{{ r.kind }}</span>{% if r.partition %}<span class="tag teal">{{ r.partition }}</span>{% endif %}</h1>
+    <p>{{ r.label }} · hall {{ r.hall }} · row {{ r.row }} · position {{ r.pos }} · design {{ r.design_kw }} kW{% if r.cdu %} · cooled by <a class="link" href="/facility/cooling/{{ r.cdu }}">{{ r.cdu }}</a>{% endif %}</p></div>
+  <div class="page-actions"><a class="btn" href="/rack-view">Rack View</a>{% if r.kind == 'gpu' %}<a class="btn" href="/gpu-fleet?tab=heatmap">GPU heatmap</a><a class="btn" href="/observability/metrics?q={{ ('rack_temp_max_c{rack="' ~ r.id ~ '"}')|urlencode }}">PromQL</a>{% endif %}</div>
+</div>
+{% if r.kind == 'gpu' %}
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('Power', st.kw|num(1), 'kW', 'of ' ~ r.design_kw ~ ' kW design · ' ~ ((st.kw / r.design_kw * 100)|num(0)) ~ '%', size='s') }}</div>
+  <div class="panel tight">{{ kpi('GPU utilization', st.util|num(1), '%', st.alloc ~ ' / ' ~ st.gpus ~ ' GPUs allocated', size='s') }}</div>
+  <div class="panel tight">{{ kpi('GPU temp', st.temp_max|num(1), '°C max', 'avg ' ~ st.temp_avg ~ ' °C', size='s', cls='t-crit' if st.temp_max >= 87 else '') }}</div>
+  <div class="panel tight">{{ kpi('Coolant supply', d.cooling.supply_c|num(1) if d.cooling.supply_c else '—', '°C', d.cooling.cdu ~ ' · ' ~ d.cooling.status, size='s') }}</div>
+  <div class="panel tight">{{ kpi('Throttling', st.throttle, 'GPUs', 'thermal', size='s', cls='t-warn' if st.throttle else '') }}</div>
+  <div class="panel tight">{{ kpi('Failed', st.failed, 'GPUs', 'XID / ECC', size='s', cls='t-crit' if st.failed else '') }}</div>
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-7">
+    {{ head('Elevation', '52U · front view · click a node') }}
+    <div class="elevation">
+      {% for u in d.units %}
+      <div class="u"><span class="un">U{{ u.u }}</span>
+        {% if u.kind == 'node' %}
+        <a class="slot node {{ u.status }}" href="{{ u.href }}">
+          <span class="mono" style="width:112px"><b>{{ u.label }}</b><div class="xs muted">{{ u.status }} · {{ u.power_kw }} kW</div></span>
+          <span class="gpu-strip">{% for g in u.gpus %}<i data-u="{{ g.util }}" data-t="{{ g.temp }}" data-h="{{ g.health }}" data-th="{{ g.throttle }}" title="GPU{{ loop.index0 }} · {{ g.util }}% · {{ g.temp }} °C"></i>{% endfor %}</span>
+          <span class="xs muted" style="margin-left:auto;text-align:right">{{ u.util }}% · {{ u.temp }} °C</span>
+        </a>
+        {% else %}
+        <{{ 'a' if u.href else 'div' }} class="slot" {% if u.href %}href="{{ u.href }}"{% endif %}><span class="tag">{{ u.kind }}</span><span class="small">{{ u.label }}</span><span style="margin-left:auto">{{ pill(u.status) }}</span></{{ 'a' if u.href else 'div' }}>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    <div class="row mt-s" style="gap:10px"><span class="xs muted">GPU cells:</span><div class="seg" id="gm"><button class="on" data-m="u">util</button><button data-m="t">temp</button></div><div class="scale"><span id="glo">0%</span><span class="ramp" id="gramp"></span><span id="ghi">100%</span></div></div>
+  </div>
+  <div class="s-5">
+    <div class="panel">{{ head('Rack telemetry', 'power · max GPU temp · 60 min') }}<div class="chart m" id="c-rack"></div></div>
+    <div class="panel mt">
+      {{ head('Connectivity & power') }}
+      <div class="kv">
+        <span>Ethernet leaf</span><span><a class="link mono" href="/network/device/{{ r.eth_leaf }}">{{ r.eth_leaf }}</a></span>
+        <span>InfiniBand leaf</span><span><a class="link mono" href="/network/device/{{ r.ib_leaf }}">{{ r.ib_leaf }}</a></span>
+        <span>Busway A</span><span><a class="link mono" href="/facility/power/{{ d.power.a }}">{{ d.power.a }}</a></span>
+        <span>Busway B</span><span><a class="link mono" href="/facility/power/{{ d.power.b }}">{{ d.power.b }}</a></span>
+        <span>CDU</span><span><a class="link mono" href="/facility/cooling/{{ d.cooling.cdu }}">{{ d.cooling.cdu }}</a> {{ pill(d.cooling.status) }}</span>
+      </div>
+      <div class="meter mt"><span class="xs">Power vs design</span><span class="xs mono">{{ st.kw|num(0) }} / {{ r.design_kw }} kW</span>{{ bar(st.kw / r.design_kw * 100, warn=85, crit=95) }}</div>
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="g g-3">
+  <div class="panel tight">{{ kpi('Power', st.kw|num(1), 'kW', 'of ' ~ r.design_kw ~ ' kW design', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Hall', r.hall, '', 'row ' ~ r.row ~ ' · air-cooled', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Role', r.kind, '', r.label, size='s') }}</div>
+</div>
+<div class="panel mt">
+  {{ head('Contents') }}
+  <div class="note">
+    {% if r.kind == 'storage' %}IBM Storage Scale System building blocks — see <a class="link" href="/storage">Storage</a> for NSD, fileset and throughput detail.
+    {% elif r.kind == 'network' %}Spine and border switching — see <a class="link" href="/network">Network</a> for fabric utilization and device health.
+    {% elif r.kind == 'mgmt' %}Kubernetes control plane / workers and management servers — see <a class="link" href="/kubernetes">Kubernetes</a>.
+    {% else %}Reserved position for M1 expansion.{% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{% if d.rack.kind == 'gpu' %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C, col = {{ d.stats.col }};
+  function paint(m) {
+    document.getElementById("gramp").style.background = HeatGrid.rampCSS(m === "u" ? "util" : "temp");
+    document.getElementById("glo").textContent = m === "u" ? "0%" : "30°"; document.getElementById("ghi").textContent = m === "u" ? "100%" : "90°";
+    document.querySelectorAll(".gpu-strip i").forEach((i) => {
+      if (+i.dataset.h === 2) { i.style.background = C.crit; return; }
+      i.style.background = m === "u" ? HeatGrid.color("util", +i.dataset.u / 100) : HeatGrid.color("temp", (+i.dataset.t - 30) / 60);
+      i.style.boxShadow = +i.dataset.th === 1 ? "inset 0 0 0 1.5px #fff" : "";
+    });
+  }
+  document.querySelectorAll("#gm button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#gm button").forEach((x) => x.classList.toggle("on", x === b)); paint(b.dataset.m); }));
+  paint("u");
+  const [p, t] = await Promise.all([K.series("rack_power_kw", { col, minutes: 60 }), K.series("rack_temp_max_c", { col, minutes: 60 })]);
+  K.line("c-rack", [{ name: "power kW", data: p, color: C.teal, type: "areaspline" }, { name: "max GPU °C", data: t, color: C.amber, yAxis: 1 }], { y2: "°C", decimals: 1, min: 0 });
+})();
+</script>
+{% endif %}
+{% endblock %}

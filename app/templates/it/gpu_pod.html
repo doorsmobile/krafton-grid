@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set p = d.pod %}
+<div class="page-head">
+  <div><h1 class="row"><span class="mono">{{ p.pod or p.name }}</span> <span class="pill ok">{{ p.status or 'Running' }}</span></h1>
+    <p>{% if d.kind == 'mig-inference' %}Inference pod on a MIG slice · service <b>{{ p.service }}</b> · namespace {{ p.namespace }} · profile {{ p.profile }}{% else %}Kubernetes pod · {{ p.namespace }} · node {{ p.node }}{% endif %}</p></div>
+  <div class="page-actions"><a class="btn" href="/gpu-fleet?tab=connected">← Connected entities</a></div>
+</div>
+{% if d.gpu %}{% set g = d.gpu %}
+<div class="g g-4">
+  <div class="panel tight">{{ kpi('Host GPU', g.id, '', 'node ' ~ g.node, size='xs') }}</div>
+  <div class="panel tight">{{ kpi('GPU utilization', g.util|num(1), '%', 'shared across ' ~ (d.siblings|length) ~ ' MIG instances', size='s') }}</div>
+  <div class="panel tight">{{ kpi('GPU temperature', g.temp_c|num(1), '°C', g.power_w|num(0) ~ ' W', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Slice', p.profile, '', 'instance ' ~ p.instance, size='s') }}</div>
+</div>
+<div class="panel mt">
+  {{ head('MIG layout on ' ~ g.id, 'all instances on this GPU', '/gpu-fleet/device/' ~ g.id, 'Device') }}
+  <div class="stack-bar" style="height:28px;border-radius:8px">
+    {% for x in d.siblings %}{% set w = {'1g.36gb': 1, '2g.72gb': 2, '3g.144gb': 3, '4g.144gb': 4, '7g.288gb': 7}[x.profile] %}
+    <i style="flex:{{ w }};background:{{ 'var(--teal)' if x.pod == p.pod else '#26262c' }};display:grid;place-items:center;font:600 10px var(--mono);color:{{ '#032a25' if x.pod == p.pod else '#8b8f98' }}">{{ x.profile }}</i>{% endfor %}
+  </div>
+</div>
+{% else %}
+<div class="g g-4">
+  <div class="panel tight">{{ kpi('CPU', p.cpu_now|num(0), 'm', 'request ' ~ p.cpu_m|num(0) ~ ' m', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Memory', (p.mem_now/1024)|num(1), 'GiB', '', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Restarts', p.restarts, '', 'age ' ~ (p.age_s|dur), size='s') }}</div>
+  <div class="panel tight">{{ kpi('Node', p.node, '', p.app, size='xs') }}</div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,105 +1,86 @@
-<!DOCTYPE html>
+{% from "partials/ui.html" import icon %}<!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{% block title %}{{ site_name }} DCIM{% endblock %}</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="/static/brand/favicon-32.png" />
-  <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png" />
-  <link rel="icon" href="/static/brand/krafton-grid-mark.svg" type="image/svg+xml" />
-  <meta name="theme-color" content="#000000" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <script src="/static/vendor/highcharts/highcharts.js"></script>
-  <script src="/static/vendor/highcharts/highcharts-more.js"></script>
-  <script src="/static/vendor/highcharts/modules/solid-gauge.js"></script>
-  <script src="/static/vendor/highcharts/modules/exporting.js"></script>
-  <link rel="stylesheet" href="/static/css/app.css?v={{ app_version }}" />
-  {% block head %}{% endblock %}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} · Krafton Grid</title>
+<link rel="icon" href="/static/brand/mark.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/static/css/grid.css?v={{ asset_v() }}">
+<script src="/static/vendor/highcharts/highcharts.js"></script>
+<script src="/static/vendor/highcharts/highcharts-more.js"></script>
+<script src="/static/vendor/highcharts/modules/solid-gauge.js"></script>
+<script src="/static/vendor/highcharts/modules/heatmap.js"></script>
+<script src="/static/vendor/highcharts/modules/sankey.js"></script>
+<script src="/static/vendor/highcharts/modules/xrange.js"></script>
+<script src="/static/vendor/highcharts/modules/no-data-to-display.js"></script>
+<script>window.__LIVE__ = {{ live|tojson }};</script>
+<script src="/static/js/grid.js?v={{ asset_v() }}"></script>
+<script src="/static/js/charts.js?v={{ asset_v() }}"></script>
+<script src="/static/js/heat.js?v={{ asset_v() }}"></script>
+{% block head %}{% endblock %}
 </head>
 <body>
-  <div class="app-shell">
-    <aside class="sidebar">
-      <a class="brand" href="/">
-        <span class="brand-badge">GRID</span>
-        <span class="brand-text">
-          <span class="brand-name">Krafton Grid</span>
-          <span class="brand-sub">AIDC · 100 MW</span>
-        </span>
-      </a>
-
-      <nav class="nav" aria-label="Primary">
-        {% for item in nav %}
-          {% if item.children %}
-          <div class="nav-group is-open{% if item.id in nav_open %} has-active{% endif %}" data-nav-group="{{ item.id }}">
-            <div class="nav-group-toggle" role="button" tabindex="0" aria-expanded="true">
-              <span class="nav-icon" aria-hidden="true">{% set name = item.id %}{% include "partials/nav_icon.html" %}</span>
-              <span class="nav-label">{{ item.label }}</span>
-              <span class="nav-chevron" aria-hidden="true">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg>
-              </span>
-            </div>
-            <div class="nav-sub">
-              {% for child in item.children %}
-              <a class="nav-link nav-sublink{% if active == child.id %} is-active{% endif %}" href="{{ child.href }}">{{ child.label }}</a>
-              {% endfor %}
-            </div>
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="/">
+      <span class="brand-mark"><svg viewBox="0 0 24 24" fill="#fff"><path d="M5 3h4.2v7.4L15.6 3H21l-7.6 8.4L21.4 21h-5.5l-5.3-7-1.4 1.5V21H5z"/></svg></span>
+      <span><b>Krafton Grid</b><small>{{ RELEASE }}</small></span>
+    </a>
+    <nav>
+      {% for item in NAV %}
+        {% if item.children %}
+        <div class="nav-group">
+          <div class="nav-head">{{ icon(item.icon) }}<span>{{ item.label }}</span></div>
+          <div class="nav-sub">
+            {% for c in item.children %}
+            {% set on = path == c.href or (c.href != '/' and path.startswith(c.href + '/') and not (item.children|selectattr('href', 'equalto', path)|list)) %}
+            <a href="{{ c.href }}" class="{{ 'active' if on else '' }}"><span>{{ c.label }}</span>{% if c.new %}<span class="nav-new">NEW</span>{% endif %}</a>
+            {% endfor %}
           </div>
-          {% else %}
-          <a class="nav-link nav-top{% if active == item.id %} is-active{% endif %}" href="{{ item.href }}">
-            <span class="nav-icon" aria-hidden="true">{% set name = item.id %}{% include "partials/nav_icon.html" %}</span>
-            <span class="nav-label">{{ item.label }}</span>
-          </a>
-          {% endif %}
-        {% endfor %}
-      </nav>
-
-      <div class="sidebar-foot">
-        <div class="pulse-dot" id="live-dot"></div>
-        <div style="flex:1;min-width:0">
-          <div class="muted">Live sim</div>
-          <div class="mono" id="live-mode">{{ live.mode }}</div>
         </div>
-        <a class="btn btn-sm btn-ghost" href="/logout" style="flex-shrink:0">Logout</a>
-      </div>
-    </aside>
-
-    <div class="main">
-      <header class="topbar">
-        <div>
-          <h1 class="page-title">{% block page_title %}Main{% endblock %}</h1>
-          <p class="page-sub">{% block page_sub %}Facility + IT cluster telemetry{% endblock %}</p>
-        </div>
-        <div class="kpi-strip" id="top-kpis">
-          <div class="kpi"><span class="kpi-l">IT Load</span><span class="kpi-v" data-k="it_load_mw">{{ '%.1f'|format(live.it_load_mw) }}</span><span class="kpi-u">MW</span></div>
-          <div class="kpi"><span class="kpi-l">PUE</span><span class="kpi-v" data-k="pue">{{ '%.3f'|format(live.pue) }}</span><span class="kpi-u">ratio</span></div>
-          <div class="kpi"><span class="kpi-l">Util</span><span class="kpi-v" data-k="utilization_pct">{{ '%.1f'|format(live.utilization_pct) }}</span><span class="kpi-u">%</span></div>
-          <div class="kpi"><span class="kpi-l">Alerts</span><span class="kpi-v" data-k="active_alerts">{{ live.active_alerts }}</span><span class="kpi-u">open</span></div>
-        </div>
-      </header>
-
-      <main class="content">
-        {% block content %}{% endblock %}
-      </main>
+        {% else %}
+        <a class="nav-top {{ 'active' if path == item.href else '' }}" href="{{ item.href }}">{{ icon(item.icon) }}<span>{{ item.label }}</span></a>
+        {% endif %}
+      {% endfor %}
+    </nav>
+    <div class="side-foot">
+      <div>100 MW campus · M1 live 20 MW</div>
+      <div>{{ AGENT }} build · port {{ PORT }}</div>
+      {% if auth_enabled %}<a class="link" href="/logout">Sign out</a>{% endif %}
     </div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="menu">{{ icon("menu") }}</button>
+      <div class="crumbs">
+        {% for c in crumbs %}<a href="{{ c.href }}">{{ c.label }}</a><span class="sep">/</span>{% endfor %}
+        <span class="here">{{ title }}</span>
+      </div>
+      <button class="search-btn" data-open-palette>{{ icon("search") }}<span>Search racks, nodes, GPUs, devices…</span><span class="kbd">⌘K</span></button>
+      <div class="top-right">
+        <a class="chip warn" id="scenario-chip" href="/platform/simulation" style="display:none"></a>
+        <span class="chip mode" id="mode-chip">mode · {{ live.mode }}</span>
+        <span class="chip" title="Server-Sent Events · one frame per tick"><span class="live-dot" id="live-dot"></span><span class="mono xs" id="tick">tick {{ live.tick }}</span></span>
+        <a class="bell" href="/alerts" title="Alerts">{{ icon("bell") }}<span class="badge {{ 'crit' if live.alerts.critical else ('warn' if live.alerts.warning else '') }}" id="bell-badge" {% if not live.alerts.firing %}style="display:none"{% endif %}>{{ live.alerts.firing }}</span></a>
+        <span class="clock" id="clock"></span>
+      </div>
+    </header>
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
   </div>
-
-  <script src="/static/js/charts.js"></script>
-  <script src="/static/js/app.js"></script>
-  <script>
-  document.querySelectorAll(".nav-group-toggle").forEach((btn) => {
-    const toggle = () => {
-      const group = btn.closest(".nav-group");
-      const open = group.classList.toggle("is-open");
-      btn.setAttribute("aria-expanded", open ? "true" : "false");
-    };
-    btn.addEventListener("click", toggle);
-    btn.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
-    });
-  });
-  </script>
-  {% block scripts %}{% endblock %}
+</div>
+<div class="toasts" id="toasts"></div>
+<div class="overlay" id="palette">
+  <div class="palette">
+    <input placeholder="Jump to a page, rack (R12), node (kg-r07-n03), GPU, device (CDU-A2, ib-leaf-05) or run a scenario…" autocomplete="off" spellcheck="false">
+    <div class="palette-results"></div>
+    <div class="palette-foot"><span>↑↓ navigate</span><span>↵ open</span><span>esc close</span><span style="margin-left:auto">/ or ⌘K anywhere</span></div>
+  </div>
+</div>
+{% block scripts %}{% endblock %}
 </body>
 </html>

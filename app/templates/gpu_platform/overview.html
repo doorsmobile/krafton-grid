@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head, icon %}
+{% block content %}
+{% set s = d.summary %}
+<div class="page-head">
+  <div><h1>GPU Platform</h1><p>Self-service AI platform on top of the fleet: project quotas, Slurm + CubeFlow scheduling, RCS dev sessions, MIG inference pools and the in-house LLM catalog. Submit a job below and watch the scheduler place it (or burst it to AWS).</p></div>
+  <div class="page-actions"><a class="btn" href="/gpu-platform/workloads">Workloads</a><a class="btn" href="/gpu-platform/ops">Ops</a><a class="btn" href="/gpu-fleet">GPU Monitoring</a></div>
+</div>
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('Jobs running', s.jobs_running, '', '<span data-live="gpu.jobs_pending">' ~ s.jobs_pending ~ '</span> pending · ' ~ '{:,}'.format(s.pending_gpus) ~ ' GPUs queued', live='gpu.jobs_running', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Allocated GPUs', '{:,}'.format(s.allocated), '/ ' ~ '{:,}'.format(s.total), s.allocation_pct ~ '% of fleet', live='gpu.allocated', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Utilization', s.avg_util_alloc|num(1), '%', 'of allocated GPUs', live='gpu.avg_util_alloc', fmt='f1', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Completed · 1 h', s.completed_1h, '', s.failed_1h ~ ' failed', size='s') }}</div>
+  <div class="panel tight">{{ kpi('MIG inference', s.mig_instances, 'slices', 'on ' ~ s.mig_gpus ~ ' GPUs', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Serving models', d.llm|selectattr('status', 'equalto', 'serving')|list|length, '/ ' ~ d.llm|length, 'LLM catalog', size='s') }}</div>
+</div>
+
+<div class="g g-12 mt">
+  <div class="panel s-5" id="launch">
+    {{ head('Launch a workload', 'one-click notebook · multi-node training · batch eval') }}
+    <div class="seg mb wrap" id="presets">
+      <button class="on" data-p='{"profile":"notebook","size":1,"project":"research-sandbox"}'>Notebook · 1 GPU</button>
+      <button data-p='{"profile":"finetune","size":8,"project":"pubg-ally"}'>Fine-tune · 8 nodes</button>
+      <button data-p='{"profile":"pretrain","size":64,"project":"llm-pretrain"}'>Pretrain · 64 nodes</button>
+      <button data-p='{"profile":"eval","size":4,"project":"inzoi-smartzoi"}'>Eval · 4 GPUs</button>
+    </div>
+    <div class="form-grid">
+      <label for="f-project">Project</label>
+      <select class="input" id="f-project">{% for p in d.projects if p.id != 'inference-prod' %}<option value="{{ p.id }}">{{ p.name }} · {{ p.used_gpus }}/{{ p.quota_gpus }}</option>{% endfor %}</select>
+      <label for="f-profile">Profile</label>
+      <select class="input" id="f-profile">{% for k, lab in [('notebook','Notebook / RCS (GPUs)'),('finetune','Fine-tune (nodes)'),('pretrain','Pretrain (nodes)'),('rlhf','RLHF (nodes)'),('eval','Eval (GPUs <8 · nodes ≥8)'),('data','Data processing (GPUs)')] %}<option value="{{ k }}">{{ lab }}</option>{% endfor %}</select>
+      <label for="f-size">Size</label>
+      <div class="row"><input class="input" id="f-size" type="number" min="1" max="256" value="1" style="width:90px"><span class="xs muted" id="f-size-unit">GPUs</span></div>
+      <label for="f-name">Job name</label>
+      <input class="input" id="f-name" placeholder="optional · e.g. ally-policy-sft-v5" maxlength="48">
+      <label>Placement</label>
+      <div class="xs muted" id="f-hint">dev partition · R36–R38 · shared nodes</div>
+    </div>
+    <div class="row between mt">
+      <span class="xs faint">Topology-aware: multi-node jobs are packed under the fewest IB leaves. Pending training jobs may burst to AWS Capacity Blocks.</span>
+      <button class="btn teal" id="f-submit">{{ icon('play') }} Submit</button>
+    </div>
+    <div id="f-result" class="mt"></div>
+  </div>
+  <div class="panel s-7 flush">
+    {{ head('Projects & quota', 'GPUs in use vs quota · click for RBAC and reports', '/gpu-platform/ops?tab=projects', 'Ops') }}
+    <table class="t"><thead><tr><th>Project</th><th class="right">GPUs</th><th style="width:30%">Quota</th><th class="right">Util</th><th class="right">Run / Pend</th><th class="right">GPU·h today</th></tr></thead><tbody>
+      {% for p in d.projects %}<tr data-href="/gpu-platform/ops?tab=projects#{{ p.id }}"><td><b class="small">{{ p.name }}</b><div class="xs muted">{{ p.team }} · <span class="mono">{{ p.id }}</span></div></td>
+        <td class="right">{{ '{:,}'.format(p.used_gpus) }}</td><td><div class="cell-bar">{{ bar(p.quota_pct, 'warn' if p.quota_pct >= 100 else '') }}<span class="xs muted">{{ p.quota_pct }}%</span></div></td>
+        <td class="right">{{ p.util|num(1) }}%</td><td class="right">{{ p.running }} / {{ p.pending }}</td><td class="right">{{ p.gpu_hours_today|num(0) }}</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</div>
+
+<div class="g g-12 mt">
+  <div class="panel s-4">
+    {{ head('Partitions', 'Slurm · node state', '/gpu-platform/workloads?tab=jobs', 'Queue') }}
+    {% for p in d.partitions %}
+    <div class="mb">
+      <div class="row between small"><span><b>{{ p.id }}</b> <span class="muted xs">{{ p.desc }}</span></span><span class="mono xs">{{ '{:,}'.format(p.allocated_gpus) }} / {{ '{:,}'.format(p.gpus) }}</span></div>
+      <div class="stack-bar mt-s">{% set tot = p.nodes or 1 %}
+        <i style="width:{{ p.states.alloc / tot * 100 }}%;background:var(--teal)" title="alloc {{ p.states.alloc }}"></i><i style="width:{{ p.states.mix / tot * 100 }}%;background:var(--teal-2)" title="mix {{ p.states.mix }}"></i>
+        <i style="width:{{ p.states.idle / tot * 100 }}%;background:#3a3d45" title="idle {{ p.states.idle }}"></i><i style="width:{{ p.states.drain / tot * 100 }}%;background:var(--warn)" title="drain {{ p.states.drain }}"></i><i style="width:{{ p.states.down / tot * 100 }}%;background:var(--crit)" title="down {{ p.states.down }}"></i>
+      </div>
+      <div class="xs muted mt-s">{{ p.running }} running · {{ p.pending }} pending · util {{ p.util }}% · alloc {{ p.states.alloc }} · mix {{ p.states.mix }} · idle {{ p.states.idle }}{% if p.states.drain %} · <span class="t-warn">drain {{ p.states.drain }}</span>{% endif %}{% if p.states.down %} · <span class="t-crit">down {{ p.states.down }}</span>{% endif %}</div>
+    </div>
+    {% endfor %}
+    <div class="legend"><span><i style="background:var(--teal)"></i>alloc</span><span><i style="background:var(--teal-2)"></i>mix</span><span><i style="background:#3a3d45"></i>idle</span><span><i style="background:var(--warn)"></i>drain</span><span><i style="background:var(--crit)"></i>down</span></div>
+  </div>
+  <div class="panel s-4 flush">
+    {{ head('LLM catalog', 'in-house & open-weights · serving status', '/gpu-platform/ops?tab=ecosystem', 'Ecosystem') }}
+    <table class="t"><thead><tr><th>Model</th><th>Precision</th><th class="right">Replicas</th><th>Status</th></tr></thead><tbody>
+      {% for m in d.llm %}<tr><td><b class="small">{{ m.model }}</b><div class="xs muted">{{ m.params_b }}B · {{ m.ctx_k }}k ctx · {{ m.owner }}</div></td><td><span class="tag">{{ m.precision }}</span></td>
+        <td class="right">{{ m.replicas }}{% if m.mig_slices %}<div class="xs muted">+{{ m.mig_slices }} MIG</div>{% endif %}</td><td>{{ pill('ok' if m.status == 'serving' else 'idle', m.status) }}</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+  <div class="panel s-4">
+    {{ head('Notices') }}
+    <div class="timeline">
+      {% for n in d.notices %}<div class="tl-item {{ n.level }}"><div class="xs muted mono">{{ n.date }}</div><div class="small" style="font-weight:600">{{ n.title }}</div><div class="xs muted">{{ n.text }}</div></div>{% endfor %}
+    </div>
+    <div class="section-title">Recently finished</div>
+    {% for j in d.recent %}<a class="stat-line" href="/gpu-platform/workloads?tab=jobs"><span class="small">{{ j.name }} <span class="mono xs muted">#{{ j.id }}</span></span><span>{{ pill('ok' if j.state == 'COMPLETED' else 'critical', j.state|lower) }}</span></a>{% else %}<div class="xs muted">No jobs finished since boot.</div>{% endfor %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const NODE = { finetune: 1, pretrain: 1, rlhf: 1 };
+  const PART = { notebook: "dev partition · R36–R38 · shared nodes", data: "batch partition · R39–R40 · shared nodes",
+    finetune: "train partition · R01–R30 · exclusive nodes", pretrain: "train partition · R01–R30 · exclusive nodes · IB-leaf packed", rlhf: "train partition · R01–R30 · exclusive nodes" };
+  function hint() {
+    const p = $("f-profile").value, n = +$("f-size").value || 1;
+    const nodes = NODE[p] || (p === "eval" && n >= 8);
+    $("f-size-unit").textContent = nodes ? `nodes · ${(n * 8).toLocaleString()} GPUs` : "GPUs";
+    $("f-size").max = nodes || p === "eval" ? 256 : 8;
+    $("f-hint").textContent = p === "eval" ? (n >= 8 ? (n > 16 ? PART.finetune : "batch partition · exclusive nodes") : "batch partition · shared nodes") : PART[p];
+  }
+  ["f-profile", "f-size"].forEach((i) => $(i).addEventListener("input", hint));
+  document.querySelectorAll("#presets button").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll("#presets button").forEach((x) => x.classList.toggle("on", x === b));
+    const p = JSON.parse(b.dataset.p); $("f-profile").value = p.profile; $("f-size").value = p.size; $("f-project").value = p.project; hint();
+  }));
+  hint();
+  let watching = null;
+  async function watch(id) {
+    const w = await Grid.getJSON("/api/gpu-platform/workloads");
+    const all = [...w.running, ...w.pending, ...w.finished];
+    const j = all.find((x) => String(x.id) === String(id));
+    const burst = w.burst.find((b) => String(b.job) === String(id));
+    if (!j) return;
+    const st = burst ? "AWS burst" : j.state;
+    $("f-result").innerHTML = `<div class="note"><div class="row between"><b>#${j.id} · ${Grid.esc(j.name)}</b>${Grid.pill(st === "RUNNING" ? "ok" : st === "PENDING" ? "warning" : "info", st)}</div>
+      <div class="xs muted mt-s">${j.project} · ${j.profile} · ${j.gpus.toLocaleString()} GPUs${j.nodes ? " on " + j.nodes + " nodes" : ""} · partition ${j.partition} · waited ${Grid.fmt.dur(j.wait_s)}</div>
+      ${j.node_list && j.node_list.length ? `<div class="xs mono mt-s">${j.node_list.slice(0, 8).join(" ")}${j.node_list.length > 8 ? " …" : ""}</div>` : ""}
+      ${burst ? `<div class="xs mt-s">Burst to AWS Capacity Block · ${burst.instances} instances · <a class="link" href="/cloud/aws">view</a></div>` : ""}
+      <div class="mt-s"><a class="link xs" href="/gpu-fleet/job/${j.id}">Open job detail →</a></div></div>`;
+    if (st === "PENDING") watching = setTimeout(() => watch(id), 2500);
+  }
+  $("f-submit").addEventListener("click", async () => {
+    const body = { project: $("f-project").value, profile: $("f-profile").value, size: +$("f-size").value, name: $("f-name").value || undefined };
+    try {
+      const j = await Grid.postJSON("/api/gpu-platform/jobs", body);
+      Grid.toast("ok", `Job #${j.id} submitted`, `${j.name} · ${j.gpus} GPUs · ${j.partition}`, `/gpu-fleet/job/${j.id}`);
+      clearTimeout(watching); watch(j.id);
+    } catch (e) { Grid.toast("critical", "Submit rejected", e.message); }
+  });
+})();
+</script>
+{% endblock %}

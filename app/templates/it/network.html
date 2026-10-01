@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set s = d.summary %}
+<div class="page-head">
+  <div><h1>Network</h1><p>Arista spine/leaf Ethernet (7800R3 × 8 · 7060X6 × 48) for storage and north-south, NVIDIA Quantum-2 InfiniBand (QM9700 × 16) for GPU collectives. Uplinks, top talkers, topology and inventory on one page — click any switch.</p></div>
+  <div class="page-actions"><a class="btn" href="/network/uplinks">Uplinks</a><a class="btn" href="/network/toptalkers">Top talkers</a><a class="btn" href="/network/inventory">Inventory</a><a class="btn" href="/platform/simulation?run=ib-flap">Simulate IB flap</a></div>
+</div>
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('InfiniBand util', s.ib_util_pct|num(1), '%', 'all-reduce traffic', live='network.ib_util_pct', fmt='f1', spark='sp-ib', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Ethernet util', s.eth_util_pct|num(1), '%', 'storage + north-south', live='network.eth_util_pct', fmt='f1', spark='sp-eth', size='s') }}</div>
+  <div class="panel tight">{{ kpi('IB links down', s.ib_links_down, '', 'UFM port state', live='network.ib_links_down', fmt='int', size='s', cls='t-crit' if s.ib_links_down else '') }}</div>
+  <div class="panel tight">{{ kpi('Devices', s.devices, '', '<span data-live="network.devices_down">' ~ s.devices_down ~ '</span> down · <span data-live="network.devices_degraded">' ~ s.devices_degraded ~ '</span> degraded', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Cloud interconnect', (s.border.aws_dx_gbps + s.border.gcp_ic_gbps + s.border.nhn_gbps)|num(1), 'Gb/s', 'AWS ' ~ s.border.aws_dx_gbps ~ ' · GCP ' ~ s.border.gcp_ic_gbps ~ ' · NHN ' ~ s.border.nhn_gbps, size='s') }}</div>
+  <div class="panel tight">{{ kpi('Internet transit', s.border.internet_gbps, 'Gb/s', 'border leaves 47–48', live='network.border.internet_gbps', fmt='f1', size='s') }}</div>
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-7">{{ head('Ethernet fabric · Arista', '8 spines × 48 leaves · link color = leaf utilization') }}<svg class="diagram" id="topo-eth" viewBox="0 0 760 250"></svg></div>
+  <div class="panel s-5">{{ head('InfiniBand fabric · Quantum-2', '6 spines × 10 leaves · each leaf serves 4 GPU racks') }}<svg class="diagram" id="topo-ib" viewBox="0 0 480 250"></svg></div>
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-7 flush">
+    {{ head('Uplinks', 'leaf → spine · busiest first', '/network/uplinks', 'All uplinks') }}
+    <div class="table-wrap scroll-s"><table class="t" data-sortable><thead><tr><th>Leaf</th><th>Fabric</th><th>Rack</th><th class="right">In Gb/s</th><th class="right">Out Gb/s</th><th>Utilization</th><th>Status</th></tr></thead><tbody>
+      {% for u in d.uplinks[:14] %}<tr data-href="/network/device/{{ u.device }}" class="{{ 'crit' if u.links_down else '' }}"><td class="mono">{{ u.device }}</td><td>{{ u.fabric }}</td><td>{{ u.rack }}</td><td class="right">{{ u.in_gbps|num(0) }}</td><td class="right">{{ u.out_gbps|num(0) }}</td>
+        <td><div class="cell-bar">{{ bar(u.util_pct, 'crit' if u.links_down else '', warn=75) }}<span class="xs muted">{{ u.util_pct }}%</span></div></td><td>{{ pill(u.status) }}{% if u.links_down %} <span class="xs t-crit">{{ u.links_down }} down</span>{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+  <div class="panel s-5 flush">
+    {{ head('Flows', 'what is using the fabric') }}
+    <div class="table-wrap scroll-s"><table class="t"><thead><tr><th>Source</th><th>Destination</th><th>Fabric</th><th class="right">Gb/s</th></tr></thead><tbody>
+      {% for f in d.flows %}<tr {% if f.job %}data-href="/gpu-fleet/job/{{ f.job }}"{% endif %}><td class="small">{{ f.src }}</td><td class="small">{{ f.dst }}</td><td><span class="tag">{{ f.fabric[:3] }}</span></td><td class="right">{{ f.gbps|num(0) }}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+</div>
+<div class="g g-2 mt">
+  <div class="panel">{{ head('Fabric utilization', '% · 60 min') }}<div class="chart m" id="c-fab"></div></div>
+  <div class="panel flush">
+    {{ head('Top talkers · devices', 'in + out', '/network/toptalkers', 'All') }}
+    <table class="t"><thead><tr><th>Device</th><th>Model</th><th class="right">In</th><th class="right">Out</th><th>Util</th></tr></thead><tbody>
+      {% for t in d.toptalkers[:8] %}<tr data-href="/network/device/{{ t.id }}"><td class="mono">{{ t.id }}</td><td class="small muted">{{ t.model }}</td><td class="right">{{ t.in_gbps|num(0) }}</td><td class="right">{{ t.out_gbps|num(0) }}</td><td><div class="cell-bar">{{ bar(t.util_pct) }}</div></td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C;
+  const sib = K.spark("sp-ib", await K.series("net_ib_util_pct", { minutes: 30 }), { color: C.teal });
+  const seth = K.spark("sp-eth", await K.series("net_eth_util_pct", { minutes: 30 }), { color: C.steel });
+  const [ib, eth] = await Promise.all([K.series("net_ib_util_pct", { minutes: 60 }), K.series("net_eth_util_pct", { minutes: 60 })]);
+  const fab = K.line("c-fab", [{ name: "InfiniBand", data: ib, color: C.teal }, { name: "Ethernet", data: eth, color: C.steel }], { min: 0, unit: "%", decimals: 1 });
+  const ns = "http://www.w3.org/2000/svg";
+  const col = (u, down) => down ? "#F9423A" : u > 85 ? "#fbbf24" : HeatGrid.color("util", u / 100);
+  function draw(svgId, nodes, links, spineY, leafY, width) {
+    const svg = document.getElementById(svgId); svg.innerHTML = "";
+    const spines = nodes.filter((n) => n.tier === "spine"), leaves = nodes.filter((n) => n.tier === "leaf");
+    const pos = {};
+    spines.forEach((n, i) => (pos[n.id] = [((i + 0.5) / spines.length) * width, spineY]));
+    leaves.forEach((n, i) => (pos[n.id] = [((i + 0.5) / leaves.length) * width, leafY]));
+    for (const l of links) {
+      const [x1, y1] = pos[l.a], [x2, y2] = pos[l.b];
+      const p = document.createElementNS(ns, "line");
+      Object.entries({ x1, y1, x2, y2, stroke: col(l.util, l.down), "stroke-width": l.down ? 1.6 : 0.7, opacity: l.down ? 0.95 : 0.32 }).forEach(([k, v]) => p.setAttribute(k, v));
+      svg.appendChild(p);
+    }
+    for (const n of nodes) {
+      const [x, y] = pos[n.id]; const a = document.createElementNS(ns, "a"); a.setAttribute("href", "/network/device/" + n.id);
+      const spine = n.tier === "spine";
+      const r = document.createElementNS(ns, "rect"); const w = spine ? Math.min(62, width / spines.length - 8) : Math.max(8, width / leaves.length - 3), h = spine ? 22 : 18;
+      Object.entries({ x: x - w / 2, y: y - h / 2, width: w, height: h, rx: 4, fill: "#121215", stroke: n.status === "up" ? col(n.util) : "#F9423A", "stroke-width": n.status === "up" ? 1.2 : 2 }).forEach(([k, v]) => r.setAttribute(k, v));
+      const t = document.createElementNS(ns, "title"); t.textContent = `${n.id} · ${n.util}% · ${n.status}`; r.appendChild(t); a.appendChild(r);
+      if (spine || leaves.length <= 12) { const tx = document.createElementNS(ns, "text"); tx.setAttribute("x", x); tx.setAttribute("y", y + 3.5); tx.setAttribute("text-anchor", "middle"); tx.setAttribute("fill", "#c9ccd3"); tx.setAttribute("font-size", spine ? 9 : 8.5); tx.textContent = n.id.replace(/(eth|ib)-(spine|leaf)-/, spine ? "S" : "L"); a.appendChild(tx); }
+      svg.appendChild(a);
+    }
+    const lab = (txt, y) => { const t = document.createElementNS(ns, "text"); t.setAttribute("x", 4); t.setAttribute("y", y); t.setAttribute("fill", "#5d616b"); t.setAttribute("font-size", 9.5); t.textContent = txt; svg.appendChild(t); };
+    lab("SPINE", spineY - 18); lab("LEAF", leafY + 26);
+  }
+  async function topo() {
+    const t = await Grid.getJSON("/api/network/topology");
+    draw("topo-eth", t.nodes.filter((n) => n.fabric === "ethernet"), t.links.filter((l) => l.fabric === "ethernet"), 40, 200, 760);
+    draw("topo-ib", t.nodes.filter((n) => n.fabric === "infiniband"), t.links.filter((l) => l.fabric === "infiniband"), 40, 200, 480);
+  }
+  topo(); setInterval(() => !document.hidden && topo(), 6000);
+  Grid.onLive((L) => { const ms = L.ts * 1000; K.push(sib, 0, ms, L.network.ib_util_pct); K.push(seth, 0, ms, L.network.eth_util_pct); K.push(fab, 0, ms, L.network.ib_util_pct); K.push(fab, 1, ms, L.network.eth_util_pct); });
+})();
+</script>
+{% endblock %}

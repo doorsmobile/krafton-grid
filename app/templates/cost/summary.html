@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, head, chead %}
+{% block content %}
+{% set s = d.summary %}
+<div class="page-head">
+  <div><h1>Cost Summary</h1><p>Data-center OPEX (KEPCO electricity billed per tick at TOU rates, tax, facility O&amp;M, labor) plus cloud (AWS → GCP → NHN). Month-to-date, straight-line forecast, month-over-month and year-to-date — and what a GPU-hour really costs.</p></div>
+  <div class="page-actions"><a class="btn" href="/cost/budget">Budget</a><a class="btn" href="/cost/dc">DC</a><a class="btn" href="/cost/cloud">Cloud</a></div>
+</div>
+<div class="g g-5">
+  <div class="panel tight">{{ kpi('Month to date', s.mtd.total|krw, '', s.month ~ ' · ' ~ (s.month_frac * 100)|num(1) ~ '% elapsed', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Forecast · month', s.forecast.total|krw, '', 'DC ' ~ s.forecast.dc|krw ~ ' · cloud ' ~ s.forecast.cloud|krw, size='s') }}</div>
+  <div class="panel tight">{{ kpi('MoM · DC', ('+' if s.mom_pct.dc > 0 else '') ~ s.mom_pct.dc, '%', 'forecast vs ' ~ d.last_full.month, size='s', cls='t-warn' if s.mom_pct.dc > 8 else '') }}</div>
+  <div class="panel tight">{{ kpi('MoM · Cloud', ('+' if s.mom_pct.cloud > 0 else '') ~ s.mom_pct.cloud, '%', 'forecast vs ' ~ d.last_full.month, size='s', cls='t-warn' if s.mom_pct.cloud > 8 else '') }}</div>
+  <div class="panel tight">{{ kpi('YTD ' ~ s.ytd.year, s.ytd.total|krw, '', 'DC ' ~ s.ytd.dc|krw ~ ' · cloud ' ~ s.ytd.cloud|krw, size='s') }}</div>
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-8">{{ head('12-month trend', 'DC lines + cloud providers · current month is partial') }}<div class="chart l" id="c-trend"></div></div>
+  <div class="s-4">
+    <div class="panel">
+      {{ head('Today · live', 'accruing every tick') }}
+      <div class="split"><div><div class="xs muted">Electricity today</div><div class="kpi-value xs"><span data-live="cost.today_power_krw" data-fmt="krw">{{ d.live.today_power_krw|krw }}</span></div></div>
+        <div><div class="xs muted">Cloud today</div><div class="kpi-value xs"><span data-live="cost.today_cloud_krw" data-fmt="krw">{{ d.live.today_cloud_krw|krw }}</span></div></div></div>
+      <div class="kv mt"><span>TOU band now</span><span><span data-live="cost.rate.band_ko">{{ s.rate.band_ko }}</span> · <span data-live="cost.rate.krw_kwh">{{ s.rate.krw_kwh }}</span> ₩/kWh</span><span>Cloud burn</span><span><span data-live="cloud.total_cost_hr_krw" data-fmt="krw">{{ d.live.cloud_hr_krw|krw }}</span>/h</span></div>
+    </div>
+    <div class="panel mt">
+      {{ head('Unit economics', '₩ per GPU-hour · this month') }}
+      {% set U = s.unit %}{% set mx = [U.tco_per_gpu_hr, U.aws_b200_per_gpu_hr, U.aws_h200_per_gpu_hr, U.nhn_h100_per_gpu_hr]|max %}
+      {% for lab, v, cls in [('Grid on-prem · TCO', U.tco_per_gpu_hr, ''), ('Grid on-prem · OPEX only', U.opex_per_gpu_hr, ''), ('AWS p6-b200 (B200)', U.aws_b200_per_gpu_hr, 'steel'), ('AWS p5en (H200)', U.aws_h200_per_gpu_hr, 'steel'), ('NHN H100', U.nhn_h100_per_gpu_hr, 'steel')] %}
+      <div class="meter mb"><span class="small">{{ lab }}</span><span class="mono small">{{ v|krw }}</span>{{ bar(v / mx * 100, cls) }}</div>
+      {% endfor %}
+      <div class="xs muted">{{ '{:,}'.format(U.gpu_hours_month) }} GPU·h delivered MTD · CAPEX assumed {{ U.capex_month_assumed|krw }}/month</div>
+    </div>
+  </div>
+</div>
+<div class="g g-3 mt">
+  <div class="panel">{{ head('Mix · this month (MTD)') }}<div class="chart s" id="c-mix"></div></div>
+  <div class="panel">{{ head('Mix · ' ~ d.last_full.month) }}<div class="chart s" id="c-mix2"></div></div>
+  <div class="panel">
+    {{ head('This month by line', 'MTD') }}
+    {% set c = d.current %}
+    <div class="kv">{% for k, lab in [('power','전기요금'),('tax','세금'),('management','관리비'),('labor','인건비')] %}<span>{{ lab }}</span><span>{{ c.dc[k]|krw }}</span>{% endfor %}
+      {% for k, lab in [('aws','AWS'),('gcp','GCP'),('nhn','NHN')] %}<span>{{ lab }}</span><span>{{ c.cloud[k]|krw }}</span>{% endfor %}<span><b>Total</b></span><span><b>{{ c.total|krw }}</b></span></div>
+  </div>
+</div>
+<div class="panel mt flush">
+  {{ head('Monthly ledger', 'KRW') }}
+  <div class="table-wrap"><table class="t" id="t-led"><thead><tr><th>Month</th><th class="right">전기요금</th><th class="right">세금</th><th class="right">관리비</th><th class="right">인건비</th><th class="right">DC total</th><th class="right">AWS</th><th class="right">GCP</th><th class="right">NHN</th><th class="right">Cloud total</th><th class="right">Total</th><th class="right">Avg MW</th></tr></thead><tbody>
+    {% for r in d.months|reverse %}<tr><td class="mono">{{ r.month }}{% if r.partial %} <span class="tag teal">MTD</span>{% endif %}</td>{% for k in ['power','tax','management','labor'] %}<td class="right">{{ r.dc[k]|krw }}</td>{% endfor %}<td class="right"><b>{{ r.dc_total|krw }}</b></td>
+      {% for k in ['aws','gcp','nhn'] %}<td class="right">{{ r.cloud[k]|krw }}</td>{% endfor %}<td class="right"><b>{{ r.cloud_total|krw }}</b></td><td class="right"><b>{{ r.total|krw }}</b></td><td class="right">{{ r.avg_mw }}</td></tr>{% endfor %}
+  </tbody></table></div>
+  <div style="padding:10px 16px"><button class="btn sm" data-export="t-led" data-name="grid-cost-ledger">Export CSV</button></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const K = GridCharts, C = K.C, M = {{ d.months|tojson }};
+  const cats = M.map((m) => m.month.slice(2) + (m.partial ? "*" : ""));
+  const kf = function () { return `<span style="color:${this.color}">●</span> ${this.series.name} <b>${Grid.fmt.krw(this.y)}</b><br>`; };
+  K.columns("c-trend", cats, [
+    { name: "전기요금", data: M.map((m) => m.dc.power), color: C.teal, stack: "dc" }, { name: "세금", data: M.map((m) => m.dc.tax), color: "#1f8f81", stack: "dc" },
+    { name: "관리비", data: M.map((m) => m.dc.management), color: "#176b61", stack: "dc" }, { name: "인건비", data: M.map((m) => m.dc.labor), color: "#115049", stack: "dc" },
+    { name: "AWS", data: M.map((m) => m.cloud.aws), color: C.steel, stack: "cloud" }, { name: "GCP", data: M.map((m) => m.cloud.gcp), color: C.steel2, stack: "cloud" },
+    { name: "NHN", data: M.map((m) => m.cloud.nhn), color: C.violet, stack: "cloud" }], { stacking: "normal", pointFormatter: kf, yFormatter: (v) => Grid.fmt.krw(v) });
+  const pf = function () { return `<b>${Grid.fmt.krw(this.y)}</b> (${this.percentage.toFixed(1)}%)`; };
+  K.donut("c-mix", {{ d.mix|tojson }}.map((x, i) => ({ ...x, color: [C.teal, C.steel][i] })), { pointFormatter: pf });
+  K.donut("c-mix2", {{ d.mix_last|tojson }}.map((x, i) => ({ ...x, color: [C.teal, C.steel][i] })), { pointFormatter: pf });
+})();
+</script>
+{% endblock %}

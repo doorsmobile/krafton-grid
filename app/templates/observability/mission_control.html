@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import pill, head, icon %}
+{% block content %}
+<div class="page-head">
+  <div><h1 class="row">Mission Control {% if d.claude %}<span class="pill ok">Claude · {{ d.model }}</span>{% else %}<span class="pill idle">offline analyst</span>{% endif %}</h1>
+    <p>Ask about the campus in Korean or English. {% if d.claude %}Claude investigates with {{ d.tools|length }} read-only tools over live telemetry — every tool call is shown with a link to the page it read.{% else %}No Anthropic credentials are configured, so the built-in deterministic analyst answers using the same {{ d.tools|length }} tools. Set <code>ANTHROPIC_API_KEY</code> and restart to switch to Claude.{% endif %}</p></div>
+  <div class="page-actions"><button class="btn" id="reset">New conversation</button></div>
+</div>
+<div class="g g-12">
+  <div class="panel s-8 chat-panel">
+    <div class="chat" id="chat">
+      <div class="msg agent"><div class="bubble"><p><b>{{ AGENT }}</b> — I watch power, cooling, 5,000 GPUs, storage, network, Kubernetes, cloud and cost. Ask me what is wrong, why, and what to do next.</p>
+        <p class="xs muted">Read-only: I never change equipment state. Actions (drain, scenario stop, alert ack) stay with you.</p></div></div>
+    </div>
+    <div class="row wrap mt-s" style="gap:6px" id="sugg">{% for s in d.suggestions %}<button class="chip" data-s="{{ s }}">{{ s }}</button>{% endfor %}</div>
+    <div class="row mt-s" style="gap:8px">
+      <textarea class="input grow" id="q" rows="2" placeholder="예: B3 열 CDU 장애 영향 분석해줘 · Why is PUE up?" style="resize:none;min-height:46px"></textarea>
+      <button class="btn teal" id="send" style="height:46px">{{ icon('arrow') }} Ask</button>
+    </div>
+  </div>
+  <div class="s-4">
+    <div class="panel">
+      {{ head('Live context', 'what the agent sees') }}
+      <div class="kv">
+        <span>IT load</span><span><span data-live="site.it_mw" data-fmt="f2">{{ live.site.it_mw }}</span> MW</span>
+        <span>PUE</span><span data-live="site.pue" data-fmt="f3">{{ live.site.pue }}</span>
+        <span>GPU utilization</span><span><span data-live="gpu.avg_util" data-fmt="f1">{{ live.gpu.avg_util }}</span>%</span>
+        <span>Open incidents</span><span data-live="alerts.incidents_open" data-fmt="int">{{ live.alerts.incidents_open }}</span>
+        <span>Alerts firing</span><span data-live="alerts.firing" data-fmt="int">{{ live.alerts.firing }}</span>
+        <span>Scenarios</span><span>{{ live.scenarios|map(attribute='name')|join(', ') or 'none' }}</span>
+      </div>
+      <div class="note mt">Try it with a fault: <a class="link" href="/platform/simulation?run=cdu-failure">start “CDU failure”</a>, come back, and ask “what just happened?”.</div>
+    </div>
+    <div class="panel mt">
+      {{ head('Engine', '') }}
+      <div class="kv"><span>Mode</span><span>{{ d.mode }}{{ ' → claude' if d.claude and d.mode == 'auto' else (' → offline' if d.mode == 'auto' else '') }}</span><span>Model</span><span class="mono xs">{{ d.model if d.claude else 'grid-analyst (built-in)' }}</span>
+        <span>Thinking</span><span>{{ 'adaptive · summarized updates' if d.claude else '—' }}</span><span>Session</span><span class="mono xs" id="sid">new</span><span>Last run</span><span class="xs" id="usage">—</span></div>
+    </div>
+    <div class="panel mt">
+      {{ head('Tools', d.tools|length ~ ' read-only functions') }}
+      <div class="list">{% for t in d.tools %}<div class="stat-line"><span class="mono xs t-teal">{{ t.name }}</span><span class="xs muted" style="text-align:right;max-width:62%">{{ t.desc }}</span></div>{% endfor %}</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id), chat = $("chat");
+  const store = { get(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { sessionStorage.setItem(k, v); } catch (e) { } }, del(k) { try { sessionStorage.removeItem(k); } catch (e) { } } };
+  let session = store.get("mc-session"), es = null, busy = false;
+  if (session) $("sid").textContent = session.slice(0, 12);
+  const scroll = () => { chat.scrollTop = chat.scrollHeight; };
+  function add(role, html) { const m = document.createElement("div"); m.className = "msg " + role; m.innerHTML = `<div class="bubble">${html}</div>`; chat.appendChild(m); scroll(); return m.querySelector(".bubble"); }
+  function ask(q) {
+    q = (q || "").trim(); if (!q || busy) return;
+    busy = true; $("send").disabled = true; $("q").value = "";
+    add("user", Grid.esc(q));
+    const b = add("agent", `<div class="steps"></div><div class="updates"></div><div class="ans typing"></div>`);
+    const steps = b.querySelector(".steps"), ups = b.querySelector(".updates"), ans = b.querySelector(".ans");
+    const u = new URLSearchParams({ q }); if (session) u.set("session", session);
+    es = new EventSource("/api/observability/agent/stream?" + u);
+    const t0 = Date.now();
+    const finish = () => { es && es.close(); es = null; busy = false; $("send").disabled = false; ans.classList.remove("typing"); scroll(); };
+    es.onmessage = (m) => {
+      const ev = JSON.parse(m.data);
+      if (ev.type === "status") { if (ev.session) { session = ev.session; store.set("mc-session", session); $("sid").textContent = session.slice(0, 12); } if (ev.note) ups.insertAdjacentHTML("beforeend", `<div class="update">${Grid.esc(ev.note)}</div>`); }
+      else if (ev.type === "update") ups.insertAdjacentHTML("beforeend", `<div class="update">${Grid.esc(ev.text)}</div>`);
+      else if (ev.type === "tool") steps.insertAdjacentHTML("beforeend", `<div class="step ${ev.error ? "err" : ""}"><span class="fn">${Grid.esc(ev.name)}(${Grid.esc(Object.entries(ev.input || {}).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", "))})</span><span>${Grid.esc(ev.summary || "")}</span>${ev.href ? `<a href="${ev.href}">open →</a>` : ""}</div>`);
+      else if (ev.type === "answer") ans.innerHTML = Grid.md(ev.text);
+      else if (ev.type === "error") { ans.innerHTML = `<div class="note warn">${Grid.esc(ev.text)}</div>`; finish(); }
+      else if (ev.type === "done") {
+        if (ev.session) { session = ev.session; store.set("mc-session", session); $("sid").textContent = session.slice(0, 12); }
+        const us = ev.usage || {}; $("usage").textContent = `${ev.elapsed_s ?? ((Date.now() - t0) / 1000).toFixed(1)} s` + (us.input_tokens ? ` · ${us.input_tokens.toLocaleString()} in / ${(us.output_tokens || 0).toLocaleString()} out` : "");
+        finish();
+      }
+      scroll();
+    };
+    es.onerror = () => { if (busy) { if (!ans.innerHTML) ans.innerHTML = `<div class="note warn">Stream interrupted.</div>`; finish(); } };
+  }
+  $("send").addEventListener("click", () => ask($("q").value));
+  $("q").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); ask($("q").value); } });
+  document.querySelectorAll("[data-s]").forEach((b) => b.addEventListener("click", () => ask(b.dataset.s)));
+  $("reset").addEventListener("click", () => { store.del("mc-session"); session = null; $("sid").textContent = "new"; chat.querySelectorAll(".msg").forEach((m, i) => i && m.remove()); });
+  const pre = new URLSearchParams(location.search).get("q"); if (pre) ask(pre);
+})();
+</script>
+{% endblock %}

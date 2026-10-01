@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set R = d.resource %}
+<div class="page-head">
+  <div><h1>Platform Ops</h1><p>Operator view of the GPU Platform: project quota &amp; RBAC, node state for Slurm + CubeFlow, a live resource monitor, the MLOps ecosystem running on Kubernetes, and GPU-hour usage reports with chargeback at {{ d.chargeback_rate|krw }}/GPU·h.</p></div>
+  <div class="page-actions"><a class="btn" href="/observability/resource-usage">Resource usage by project</a><a class="btn" href="/cost">Cost</a></div>
+</div>
+
+<div class="panel" data-tab-scope>
+  <div class="tabs" data-tabs="tab" data-default="{{ tab }}">
+    <button data-tab="projects">Projects · quota · RBAC</button>
+    <button data-tab="nodes">Nodes<span class="count">{{ d.nodes|length }}</span></button>
+    <button data-tab="monitor">Resource monitor</button>
+    <button data-tab="ecosystem">Ecosystem<span class="count">{{ d.ecosystem|length }}</span></button>
+    <button data-tab="reports">Usage reports</button>
+  </div>
+
+  <div data-panel="projects" data-group="tab">
+    <div class="g g-3">
+      {% for p in d.projects %}
+      <div class="mini" id="{{ p.id }}">
+        <div class="row between"><b class="small">{{ p.name }}</b><span class="tag">P{{ p.priority }}</span></div>
+        <div class="xs muted">{{ p.team }} · <span class="mono">{{ p.id }}</span></div>
+        <div class="meter mt-s"><span class="xs">GPU quota</span><span class="xs mono">{{ '{:,}'.format(p.used_gpus) }} / {{ '{:,}'.format(p.quota_gpus) }}</span>{{ bar(p.quota_pct, 'warn' if p.quota_pct >= 100 else '') }}</div>
+        <div class="kv mt-s"><span>Utilization</span><span>{{ p.util }}%</span><span>Running / pending</span><span>{{ p.running }} / {{ p.pending }}</span>
+          <span>GPU·h today</span><span>{{ p.gpu_hours_today|num(0) }}</span><span>Idle-allocated GPU·h</span><span class="{{ 't-warn' if p.idle_gpu_hours_today > 20 else '' }}">{{ p.idle_gpu_hours_today|num(1) }}</span></div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="section-title">Roles &amp; access (RBAC)</div>
+    <table class="t"><thead><tr><th>Role</th><th>Scope</th><th class="right">Members</th><th>Permissions</th></tr></thead><tbody>
+      {% for r in d.rbac %}<tr><td><b class="small">{{ r.role }}</b></td><td><span class="tag">{{ r.scope }}</span></td><td class="right">{{ r.members }}</td><td class="small muted">{{ r.can }}</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+
+  <div data-panel="nodes" data-group="tab">
+    <div class="table-tools"><input class="input" placeholder="Filter nodes… (id, rack, job, user, state)" data-filter="#t-nodes"><button class="btn sm" data-export="#t-nodes" data-name="gpu-nodes">CSV</button></div>
+    <div class="table-wrap scroll-l"><table class="t" id="t-nodes" data-sortable><thead><tr><th>Node</th><th>Rack</th><th>Partition</th><th>State</th><th class="right">GPUs alloc</th><th class="right">Util</th><th class="right">Temp max</th><th class="right">Power</th><th>Job</th><th>User</th><th>Orchestrator</th></tr></thead><tbody>
+      {% for n in d.nodes %}<tr data-href="/gpu-fleet/node/{{ n.id }}" class="{{ 'crit' if n.state == 'down' else ('warn' if n.state == 'drain' else '') }}"><td class="mono">{{ n.id }}</td><td>{{ n.rack }}</td><td>{{ n.partition }}</td><td>{{ pill(n.state) }}</td><td class="right">{{ n.alloc }}/8</td>
+        <td class="right">{{ n.util }}%</td><td class="right {{ 't-crit' if n.temp >= 87 else ('t-warn' if n.temp >= 80 else '') }}">{{ n.temp }}°</td><td class="right">{{ n.power_kw }} kW</td><td class="small">{{ n.job }}</td><td class="small muted">{{ n.user }}</td><td class="small">{{ n.orch }}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+
+  <div data-panel="monitor" data-group="tab">
+    <div class="g g-4">
+      <div class="mini">{{ kpi('GPU allocated', '{:,}'.format(R.gpu.allocated), '/ ' ~ '{:,}'.format(R.gpu.total), 'util ' ~ R.gpu.avg_util_alloc ~ '% of allocated', live='gpu.allocated', fmt='int', size='s') }}</div>
+      <div class="mini">{{ kpi('Kubernetes', R.k8s.pods_running, 'pods', R.k8s.ready ~ '/' ~ R.k8s.nodes ~ ' nodes ready · CPU ' ~ R.k8s.cpu_pct ~ '%', live='k8s.pods_running', fmt='int', size='s') }}</div>
+      <div class="mini">{{ kpi('Storage throughput', (R.storage.read_gbs + R.storage.write_gbs)|num(0), 'GB/s', 'read ' ~ R.storage.read_gbs|num(0) ~ ' · write ' ~ R.storage.write_gbs|num(0), size='s') }}</div>
+      <div class="mini">{{ kpi('InfiniBand', R.network.ib_tbps, 'Tb/s', 'util ' ~ R.network.ib_util_pct ~ '% · ' ~ R.network.ib_links_down ~ ' links down', live='network.ib_tbps', fmt='f1', size='s') }}</div>
+    </div>
+    <div class="g g-2 mt">
+      <div>{{ head('GPU utilization & allocation', '60 min') }}<div class="chart m" id="c-gpu"></div></div>
+      <div>{{ head('Storage & fabric', 'GB/s · IB % · 60 min') }}<div class="chart m" id="c-io"></div></div>
+    </div>
+  </div>
+
+  <div data-panel="ecosystem" data-group="tab">
+    <div class="g g-3">
+      {% for e in d.ecosystem %}
+      <div class="mini"><div class="row between"><b class="small">{{ e.name }}</b>{{ pill(e.status) }}</div>
+        <div class="xs muted">{{ e.kind }} · namespace <span class="mono">{{ e.ns }}</span></div>
+        <div class="row between mt-s"><span class="xs mono faint">{{ e.url }}</span><a class="xs link" href="/kubernetes?ns={{ e.ns }}">{{ e.pods }} pods{% if e.unhealthy %} · <span class="t-warn">{{ e.unhealthy }} unhealthy</span>{% endif %}</a></div></div>
+      {% endfor %}
+    </div>
+    <div class="section-title">LLM catalog &amp; serving</div>
+    <table class="t"><thead><tr><th>Model</th><th>Owner</th><th>Kind</th><th class="right">Params</th><th class="right">Context</th><th>Precision</th><th>Serving</th><th class="right">GPUs</th><th class="right">MIG</th><th>Status</th></tr></thead><tbody>
+      {% for m in d.llm %}<tr><td><b class="small">{{ m.model }}</b></td><td class="small">{{ m.owner }}</td><td><span class="tag">{{ m.kind }}</span></td><td class="right">{{ m.params_b }}B</td><td class="right">{{ m.ctx_k }}k</td><td>{{ m.precision }}</td><td class="mono small">{{ m.serving }}</td><td class="right">{{ m.gpus }}</td><td class="right">{{ m.mig_slices }}</td><td>{{ pill('ok' if m.status == 'serving' else 'idle', m.status) }}</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+
+  <div data-panel="reports" data-group="tab">
+    <div class="row between mb"><div class="small muted">Month-to-date GPU hours and internal chargeback at {{ d.chargeback_rate|krw }} per GPU·h (depreciation + power + facility share).</div><button class="btn sm" data-export="#t-rep" data-name="gpu-usage-report">Export CSV</button></div>
+    <div class="g g-12">
+      <div class="s-7"><table class="t" id="t-rep" data-sortable><thead><tr><th>Project</th><th>Team</th><th class="right">GPU·h today</th><th class="right">GPU·h MTD</th><th class="right">Idle GPU·h today</th><th class="right">Chargeback MTD</th></tr></thead><tbody>
+        {% for r in d.reports|sort(attribute='chargeback_krw', reverse=True) %}<tr><td><b class="small">{{ r.name }}</b></td><td class="small muted">{{ r.team }}</td><td class="right">{{ r.gpu_hours_today|num(0) }}</td><td class="right">{{ '{:,}'.format(r.gpu_hours_mtd) }}</td><td class="right {{ 't-warn' if r.idle_gpu_hours_today > 20 else '' }}">{{ r.idle_gpu_hours_today|num(1) }}</td><td class="right"><b>{{ r.chargeback_krw|krw }}</b></td></tr>{% endfor %}
+      </tbody><tfoot><tr><td colspan="3"><b>Total</b></td><td class="right"><b>{{ '{:,}'.format(d.reports|sum(attribute='gpu_hours_mtd')) }}</b></td><td></td><td class="right"><b>{{ (d.reports|sum(attribute='chargeback_krw'))|krw }}</b></td></tr></tfoot></table></div>
+      <div class="s-5">{{ head('Chargeback share', 'MTD') }}<div class="chart m" id="c-share"></div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const K = GridCharts, C = K.C;
+  let drawn = {};
+  async function monitor() {
+    if (drawn.monitor) return; drawn.monitor = true;
+    const [u, a, rd, wr, ib] = await Promise.all(["gpu_util_avg", "gpu_alloc_pct", "storage_read_total_gbs", "storage_write_total_gbs", "net_ib_util_pct"].map((m) => K.series(m, { minutes: 60 })));
+    K.line("c-gpu", [{ name: "utilization %", data: u, color: C.teal, type: "areaspline" }, { name: "allocated %", data: a, color: C.steel }], { min: 0, max: 100, unit: "%", decimals: 1 });
+    K.line("c-io", [{ name: "read GB/s", data: rd, color: C.teal }, { name: "write GB/s", data: wr, color: C.steel }, { name: "IB util %", data: ib, color: C.violet, yAxis: 1 }], { min: 0, y2: "%", decimals: 1 });
+  }
+  function share() {
+    if (drawn.share) return; drawn.share = true;
+    K.donut("c-share", {{ d.reports|map(attribute='name')|list|tojson }}.map((n, i) => ({ name: n, y: {{ d.reports|map(attribute='chargeback_krw')|list|tojson }}[i] })), { pointFormatter() { return `<b>${Grid.fmt.krw(this.y)}</b> (${this.percentage.toFixed(1)}%)`; } });
+  }
+  const run = (k) => { if (k === "monitor") monitor(); if (k === "reports") share(); };
+  window.addEventListener("tab:tab", (e) => run(e.detail));
+  run(new URLSearchParams(location.search).get("tab") || "{{ tab }}");
+})();
+</script>
+{% endblock %}

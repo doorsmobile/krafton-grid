@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import head, icon %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Logs</h1><p>LogQL-style search: stream selector <code>{service="…", level=~"warn|error"}</code>, line filters <code>|=</code> <code>!=</code> <code>|~</code> <code>!~</code>, and metric queries <code>count_over_time(…[5m])</code> / <code>rate(…)</code>. Live tail follows new lines every 2 s.</p></div>
+  <div class="page-actions"><a class="btn" href="/observability/explore">Explore</a><a class="btn" href="/observability/metrics">Metrics</a></div>
+</div>
+<div class="panel">
+  <div class="row" style="gap:8px">
+    <input class="input mono grow" id="q" spellcheck="false" value="{{ q }}" placeholder='{service="dcgm-exporter"} |= "Xid"'>
+    <select class="input" id="win">{% for m, lab in [(5,'5 m'),(15,'15 m'),(30,'30 m'),(60,'1 h')] %}<option value="{{ m }}" {{ 'selected' if m == 30 else '' }}>{{ lab }}</option>{% endfor %}</select>
+    <button class="btn teal" id="run">{{ icon('search') }} Search</button>
+    <label class="row xs muted" style="gap:6px"><button class="switch" id="tail" aria-label="live tail"></button>live tail</label>
+  </div>
+  <div class="row wrap mt-s" style="gap:6px">{% for lab, ex in d.examples %}<button class="chip" data-q="{{ ex }}">{{ lab }}</button>{% endfor %}</div>
+  <div class="row wrap mt-s" style="gap:5px"><span class="xs muted">services:</span>{% for s in d.services %}<button class="tag" data-svc="{{ s }}">{{ s }}</button>{% endfor %}</div>
+</div>
+<div class="panel mt">
+  <div class="row between"><div class="panel-title">Volume</div><div class="row" style="gap:10px"><div class="legend" id="lv"></div><span class="xs muted mono" id="meta"></span></div></div>
+  <div id="err"></div>
+  <div class="chart s" id="c-hist"></div>
+</div>
+<div class="panel mt flush">
+  <div class="table-wrap scroll-l"><table class="t logs" id="t-logs"><thead><tr><th style="width:92px">Time (KST)</th><th style="width:64px">Level</th><th style="width:130px">Service</th><th style="width:150px">Host</th><th>Message</th></tr></thead><tbody></tbody></table></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const K = GridCharts, C = K.C, $ = (id) => document.getElementById(id);
+  const LV = { error: C.crit, warn: C.amber, info: C.steel, debug: C.steel2 };
+  let chart = null, timer = null, lastSeq = 0;
+  const hi = (msg, q) => { let m = Grid.esc(msg); const f = [...q.matchAll(/\|=\s*"([^"]+)"/g)].map((x) => x[1]); f.forEach((s) => { m = m.split(Grid.esc(s)).join(`<mark>${Grid.esc(s)}</mark>`); }); return m; };
+  const row = (l, q, fresh) => `<tr class="${fresh ? "fresh" : ""}"><td class="mono xs">${Grid.fmt.kst(l.t)}</td><td><span class="lv ${l.level}">${l.level}</span></td><td class="small">${Grid.esc(l.service)}</td><td class="mono xs muted">${Grid.esc(l.host)}</td><td class="mono xs">${hi(l.msg, q)}</td></tr>`;
+  async function run(tail) {
+    const q = $("q").value.trim(); if (!q) return;
+    if (!tail) { const u = new URL(location.href); u.searchParams.set("q", q); history.replaceState(null, "", u); }
+    $("err").innerHTML = "";
+    try {
+      const r = await Grid.postJSON("/api/observability/logs/query", { query: q, window_minutes: +$("win").value, limit: 300 });
+      const body = $("t-logs").querySelector("tbody");
+      if (r.resultType === "matrix") {
+        $("meta").textContent = `metric query · ${r.total} matching lines`;
+        if (chart) chart.destroy();
+        chart = K.columns("c-hist", r.result[0].values.map((p) => Grid.fmt.kst(p[0] / 1000).slice(0, 5)), [{ name: "value", data: r.result[0].values.map((p) => p[1]), color: C.teal }], { decimals: 3 });
+        body.innerHTML = `<tr><td colspan="5" class="empty">Metric query — see chart. Remove count_over_time()/rate() to list lines.</td></tr>`; return;
+      }
+      $("meta").textContent = `${r.total.toLocaleString()} lines · showing ${r.lines.length}`;
+      $("lv").innerHTML = Object.entries(r.by_level).map(([k, v]) => `<span><i style="background:${LV[k] || C.steel}"></i>${k} ${v}</span>`).join("");
+      if (chart) chart.destroy();
+      chart = K.line("c-hist", [{ name: "lines", data: r.histogram, type: "column", color: C.teal }], { decimals: 0, legend: false });
+      const top = r.lines.length ? r.lines[0].seq : 0;
+      body.innerHTML = r.lines.map((l) => row(l, q, tail && l.seq > lastSeq)).join("") || `<tr><td colspan="5" class="empty">No lines match in this window.</td></tr>`;
+      lastSeq = Math.max(lastSeq, top);
+    } catch (e) { $("err").innerHTML = `<div class="note warn mb">${Grid.esc(e.message)}</div>`; }
+  }
+  $("run").addEventListener("click", () => run(false));
+  $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") run(false); });
+  $("win").addEventListener("change", () => run(false));
+  document.querySelectorAll("[data-q]").forEach((b) => b.addEventListener("click", () => { $("q").value = b.dataset.q; run(false); }));
+  document.querySelectorAll("[data-svc]").forEach((b) => b.addEventListener("click", () => { $("q").value = `{service="${b.dataset.svc}"}`; run(false); }));
+  $("tail").addEventListener("click", () => { const on = $("tail").classList.toggle("on"); clearInterval(timer); if (on) timer = setInterval(() => !document.hidden && run(true), 2000); });
+  if (!$("q").value) $("q").value = '{level=~"warn|error"}';
+  run(false);
+})();
+</script>
+{% endblock %}

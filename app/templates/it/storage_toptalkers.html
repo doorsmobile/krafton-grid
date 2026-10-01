@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import bar, head %}
+{% block content %}
+<div class="page-head"><div><h1>Storage top talkers</h1><p>Every IBM Storage Scale fileset ranked by throughput. Project filesets inherit their jobs' read and checkpoint-write share.</p></div>
+  <div class="page-actions"><input class="input" data-filter="t-tt" placeholder="filter…"><button class="btn" data-export="t-tt" data-name="storage-toptalkers">Export CSV</button></div></div>
+<div class="panel flush"><div class="table-wrap"><table class="t" id="t-tt" data-sortable><thead><tr><th>#</th><th>Fileset</th><th>Cluster</th><th>Project</th><th class="right">Read GB/s</th><th class="right">Write GB/s</th><th class="right">IOPS k</th><th class="right">Latency ms</th><th>Used / quota</th></tr></thead><tbody>
+  {% for v in d.volumes %}<tr data-href="/storage/cluster/{{ v.cluster }}"><td class="muted">{{ loop.index }}</td><td class="mono small">{{ v.path }}</td><td>{{ v.cluster }}</td><td>{{ v.project }}</td><td class="right">{{ v.read_gbs }}</td><td class="right">{{ v.write_gbs }}</td><td class="right">{{ v.iops_k }}</td><td class="right">{{ v.latency_ms }}</td>
+    <td><div class="cell-bar">{{ bar(v.used_tb / v.quota_tb * 100, 'steel') }}<span class="xs muted">{{ v.used_tb|num(0) }}/{{ v.quota_tb|num(0) }} TB</span></div></td></tr>{% endfor %}
+</tbody></table></div></div>
+{% endblock %}

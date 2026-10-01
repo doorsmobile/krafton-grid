@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set j = d.job %}
+<div class="page-head">
+  <div><h1 class="row">{{ j.name }} <span class="mono muted" style="font-size:15px">#{{ j.id }}</span> {{ pill(j.state) }}</h1>
+    <p>{{ j.project }} · {{ j.user }} · {{ j.orchestrator }} · partition <b>{{ j.partition }}</b> · profile {{ j.profile }}{% if j.reason %} · <span class="muted">{{ j.reason }}</span>{% endif %}</p></div>
+  <div class="page-actions"><a class="btn" href="/gpu-platform/workloads">← Workloads</a><a class="btn" href="/observability/logs?q={{ ('{service=\"slurmctld\"} |= \"' ~ j.id ~ '\"')|urlencode }}">Logs</a></div>
+</div>
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('GPUs', j.gpus, '', j.nodes ~ ' nodes', size='s') }}</div>
+  <div class="panel tight"><div class="kpi"><div class="kpi-label">Progress</div><div class="kpi-value s">{{ 'service' if j.service else (j.progress|num(1) ~ '%') }}</div>{% if not j.service %}{{ bar(j.progress) }}{% endif %}</div></div>
+  <div class="panel tight">{{ kpi('Speed', j.speed, '×', 'vs. ideal (throttling / fabric)', size='s', cls='t-warn' if j.speed < 0.85 else '') }}</div>
+  <div class="panel tight">{{ kpi('Step time', j.step_ms|num(0) if j.step_ms else '—', 'ms' if j.step_ms else '', 'collective-bound jobs', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Runtime', j.runtime_s|dur, '', 'waited ' ~ (j.wait_s|dur), size='s') }}</div>
+  <div class="panel tight">{{ kpi('ETA', (j.eta_s|dur) if j.eta_s is not none else '—', '', 'at current speed', size='s') }}</div>
+</div>
+{% if not d.finished %}
+<div class="g g-4 mt">
+  <div class="panel tight">{{ kpi('Mean GPU util', d.stats.util, '%', '', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Hottest GPU', d.stats.temp_max, '°C', d.stats.throttling ~ ' GPUs throttling', size='s') }}</div>
+  <div class="panel tight">{{ kpi('GPU power', d.stats.power_kw, 'kW', '', size='s') }}</div>
+  <div class="panel tight">{{ kpi('HBM in use', d.stats.mem_gb|num(0), 'GB', '', size='s') }}</div>
+</div>
+<div class="panel flush mt">
+  {{ head('Nodes', (d.racks|join(', ')) ~ ' · topology-aware placement') }}
+  <div class="table-wrap scroll"><table class="t" data-sortable><thead><tr><th>Node</th><th>Rack</th><th class="right">Util %</th><th class="right">Max °C</th><th class="right">Power kW</th><th class="right">Throttling</th></tr></thead><tbody>
+    {% for n in d.nodes %}<tr data-href="/gpu-fleet/node/{{ n.node }}"><td class="mono">{{ n.node }}</td><td>{{ n.rack }}</td><td class="right">{{ n.util }}</td><td class="right {{ 't-warn' if n.temp >= 80 else '' }}">{{ n.temp }}</td><td class="right">{{ n.power_kw }}</td><td class="right">{{ n.throttle }}</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+{% else %}
+<div class="note mt">This job has finished ({{ j.state }}{% if j.reason %} · {{ j.reason }}{% endif %}). Per-node telemetry is only kept for running jobs.</div>
+{% endif %}
+{% endblock %}

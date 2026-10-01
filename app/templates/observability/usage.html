@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, head %}
+{% block content %}
+{% set P = d.projects %}
+<div class="page-head">
+  <div><h1>Resource Usage</h1><p>Compute, storage and network consumed by each project right now, with a cost signal (GPU·h chargeback at {{ d.rate|krw }} + storage at-rest). Use it to spot idle allocations and I/O-heavy tenants before they show up on the bill.</p></div>
+  <div class="page-actions"><a class="btn" href="/gpu-platform/ops?tab=reports">Usage reports</a><a class="btn" href="/cost">Cost</a></div>
+</div>
+<div class="g g-5">
+  <div class="panel tight">{{ kpi('GPUs in use', '{:,}'.format(P|sum(attribute='gpus')), '', P|length ~ ' projects', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Cost signal', (P|sum(attribute='cost_hr_krw'))|krw, '/ h', 'GPU chargeback + storage', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Storage used', ((P|sum(attribute='storage_tb')) / 1000)|num(2), 'PB', 'project filesets', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Storage I/O', (P|sum(attribute='io_gbs'))|num(0), 'GB/s', 'read + write', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Idle GPU·h today', (P|sum(attribute='idle_gpu_hours_today'))|num(0), '', '≈ ' ~ ((P|sum(attribute='idle_gpu_hours_today')) * d.rate)|krw ~ ' wasted', size='s', cls='t-warn' if (P|sum(attribute='idle_gpu_hours_today')) > 50 else '') }}</div>
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-6">{{ head('GPUs by project') }}<div class="chart m" id="c-gpu"></div></div>
+  <div class="panel s-6">{{ head('Cost signal by project', '₩/h') }}<div class="chart m" id="c-cost"></div></div>
+</div>
+<div class="panel mt flush">
+  {{ head('Per-project usage', 'sorted by cost') }}
+  <div class="table-wrap"><table class="t" data-sortable id="t-use"><thead><tr><th>Project</th><th class="right">GPUs</th><th class="right">GPU util</th><th class="right">GPU·h today</th><th class="right">Idle GPU·h</th><th class="right">Storage</th><th class="right">IOPS</th><th class="right">I/O GB/s</th><th class="right">IB Tb/s</th><th>Share of cost</th><th class="right">₩/h</th></tr></thead><tbody>
+    {% set tot = P|sum(attribute='cost_hr_krw') or 1 %}
+    {% for p in P %}<tr data-href="/gpu-platform/ops?tab=projects#{{ p.project }}"><td><b class="small">{{ p.name }}</b><div class="xs mono muted">{{ p.project }}</div></td><td class="right">{{ '{:,}'.format(p.gpus) }}</td><td class="right">{{ p.util }}%</td><td class="right">{{ p.gpu_hours_today|num(0) }}</td>
+      <td class="right {{ 't-warn' if p.idle_gpu_hours_today > 20 else '' }}">{{ p.idle_gpu_hours_today|num(1) }}</td><td class="right">{{ '{:,}'.format(p.storage_tb) }} TB</td><td class="right">{{ p.iops_k }}k</td><td class="right">{{ p.io_gbs }}</td><td class="right">{{ p.ib_tbps }}</td>
+      <td><div class="cell-bar">{{ bar(p.cost_hr_krw / tot * 100) }}<span class="xs muted">{{ (p.cost_hr_krw / tot * 100)|num(1) }}%</span></div></td><td class="right"><b>{{ p.cost_hr_krw|krw }}</b></td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const K = GridCharts, P = {{ d.projects|tojson }};
+  K.donut("c-gpu", P.filter((p) => p.gpus).map((p) => ({ name: p.name, y: p.gpus })), { center: P.reduce((a, p) => a + p.gpus, 0).toLocaleString() + "<br><span style='font-size:11px;color:#8b8f98'>GPUs</span>" });
+  K.columns("c-cost", P.map((p) => p.project), [{ name: "₩/h", data: P.map((p) => p.cost_hr_krw), color: K.C.teal }], { horizontal: true, legend: false, yFormatter: (v) => Grid.fmt.krw(v), pointFormatter() { return `<b>${Grid.fmt.krw(this.y)}</b>/h`; } });
+})();
+</script>
+{% endblock %}

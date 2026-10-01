@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set c = d.cluster %}
+<div class="page-head">
+  <div><h1 class="row">{{ c.name }} {{ pill(c.health) }}</h1><p>{{ c.product }} · {{ c.capacity_pb|num(0) }} PB · peak {{ c.peak_read_gbs|num(0) }} GB/s read / {{ c.peak_write_gbs|num(0) }} GB/s write · racks {{ c.racks|join(', ') }}</p></div>
+  <div class="page-actions">{% for x in ['ss-hot','ss-capacity','ss-archive'] %}<a class="btn sm {{ 'primary' if x == c.id else '' }}" href="/storage/cluster/{{ x }}">{{ x }}</a>{% endfor %}</div>
+</div>
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('Used', c.used_pb|num(2), 'PB', ((c.used_pb / c.capacity_pb * 100)|num(1)) ~ '%', live='storage.clusters.' ~ c.id ~ '.used_pb', fmt='f2', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Read', c.read_gbs|num(0), 'GB/s', '', live='storage.clusters.' ~ c.id ~ '.read_gbs', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Write', c.write_gbs|num(0), 'GB/s', '', live='storage.clusters.' ~ c.id ~ '.write_gbs', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('IOPS', c.iops_k|num(0), 'k', 'queue depth ' ~ c.queue, size='s') }}</div>
+  <div class="panel tight">{{ kpi('Latency', c.latency_ms|num(3), 'ms', '', live='storage.clusters.' ~ c.id ~ '.latency_ms', fmt='f2', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Metadata', c.meta_kops, 'kops/s', 'NSD ' ~ c.nsd_up ~ '/' ~ c.nsd_total ~ ' up', size='s') }}</div>
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-8">{{ head('Throughput & latency', '60 min') }}<div class="chart l" id="c-cl"></div></div>
+  <div class="panel s-4">
+    {{ head('NSD servers', 'building blocks') }}
+    <div class="g g-4" style="gap:6px">{% for n in d.nsd %}<div class="mini" style="padding:7px 8px"><div class="row between"><span class="mono xs">{{ n.id[-5:] }}</span><span class="dot {{ 'ok' if n.status == 'up' else 'crit' }}"></span></div><div class="xs muted">{{ n.rack }}</div></div>{% endfor %}</div>
+  </div>
+</div>
+<div class="panel flush mt">
+  {{ head('Filesets', 'volume IOPS · R/W · latency · queue · quota') }}
+  <div class="table-wrap"><table class="t" data-sortable><thead><tr><th>Path</th><th>Project</th><th class="right">IOPS k</th><th class="right">Read GB/s</th><th class="right">Write GB/s</th><th class="right">Latency ms</th><th class="right">Queue</th><th>Quota</th></tr></thead><tbody>
+    {% for v in d.volumes %}<tr><td class="mono small">{{ v.path }}</td><td>{{ v.project }}</td><td class="right">{{ v.iops_k }}</td><td class="right">{{ v.read_gbs }}</td><td class="right">{{ v.write_gbs }}</td><td class="right">{{ v.latency_ms }}</td><td class="right">{{ v.queue }}</td>
+      <td><div class="cell-bar">{{ bar(v.used_tb / v.quota_tb * 100, 'warn' if v.used_tb / v.quota_tb > 0.9 else 'steel') }}<span class="xs muted">{{ v.used_tb|num(0) }}/{{ v.quota_tb|num(0) }} TB</span></div></td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+<div class="panel mt">{{ head('Fileset IOPS', 'k · 60 min · top 6') }}<div class="chart m" id="c-vol"></div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C, i = {{ d.cluster_col }};
+  const [r, w, l] = await Promise.all(["storage_read_gbs", "storage_write_gbs", "storage_latency_ms"].map((m) => K.series(m, { col: i, minutes: 60 })));
+  K.line("c-cl", [{ name: "read GB/s", data: r, type: "areaspline" }, { name: "write GB/s", data: w, type: "areaspline", color: C.violet }, { name: "latency ms", data: l, yAxis: 1, color: C.amber }], { y2: "ms", decimals: 2 });
+  const cols = {{ d.volume_cols[:6]|tojson }}, names = {{ (d.volumes[:6]|map(attribute='path')|list)|tojson }};
+  const vs = await K.seriesMulti("storage_volume_iops_k", cols, { minutes: 60 });
+  K.line("c-vol", vs.map((s, k) => ({ name: names[k], data: s })), { decimals: 1 });
+})();
+</script>
+{% endblock %}

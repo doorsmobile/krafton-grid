@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set dev = d.device %}{% set st = d.state %}
+<div class="page-head">
+  <div><h1 class="row">{{ dev.id }} {{ pill(st.status) }}</h1><p>{{ dev.name }} · {{ dev.vendor }}{% if dev.hall %} · {{ dev.hall }}{% endif %}{% if dev.side %} · {{ dev.side }}-path{% endif %}</p></div>
+  <div class="page-actions"><a class="btn" href="/facility/power">← Power</a>{% if d.peer %}<a class="btn" href="/facility/power/{{ d.peer }}">Peer {{ d.peer }}</a>{% endif %}</div>
+</div>
+<div class="g g-4">
+  <div class="panel tight">{{ kpi('Load', st.load_mw|num(3), 'MW', 'rating ' ~ (dev.rating_mw|num(1)) ~ ' MW', size='s') }}</div>
+  <div class="panel tight"><div class="kpi"><div class="kpi-label">Utilization</div><div class="kpi-value s">{{ st.load_pct|num(1) }}<span class="unit">%</span></div>{{ bar(st.load_pct, '', warn=70, crit=90) }}</div></div>
+  <div class="panel tight">{{ kpi('Detail', st.detail, '', 'live from ' ~ dev.vendor, size='xs') }}</div>
+  <div class="panel tight">{{ kpi('Path redundancy', d.redundancy, '', 'campus power chain', size='s') }}</div>
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-8">
+    {{ head((d.series.label if d.series else 'Trend'), 'last 60 min') }}
+    <div class="chart l" id="c-dev">{% if not d.series %}<div class="empty">No time series for this device type.</div>{% endif %}</div>
+  </div>
+  <div class="panel s-4">
+    {{ head('Topology', 'upstream · downstream') }}
+    <div class="list">
+      {% if d.parent %}<a class="list-item" href="/facility/power/{{ d.parent.id }}"><div class="li-main"><div class="li-title mono">↑ {{ d.parent.id }}</div><div class="li-sub">{{ d.parent.name }}</div></div></a>{% endif %}
+      {% for c in d.children %}<a class="list-item" href="/facility/power/{{ c.id }}"><div class="li-main"><div class="li-title mono">↓ {{ c.id }}</div><div class="li-sub">{{ c.name }}</div></div></a>{% endfor %}
+      {% if not d.parent and not d.children %}<div class="empty">Standalone source (genset / utility feed)</div>{% endif %}
+    </div>
+    <div class="section-title">Recent events</div>
+    <div class="timeline">{% for e in d.events %}<div class="tl-item"><span class="tl-t">{{ e.t|kst }}</span>{{ e.text }}</div>{% else %}<div class="muted small">No events for this device.</div>{% endfor %}</div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+{% if d.series %}
+<script>
+(async () => {
+  const K = GridCharts;
+  const pts = await K.series("{{ d.series.metric }}", { col: {{ d.series.col }}, minutes: 60 });
+  K.area("c-dev", [{ name: "{{ d.series.label }}", data: pts }], { decimals: 2 });
+})();
+</script>
+{% endif %}
+{% endblock %}

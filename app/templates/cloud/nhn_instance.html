@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, pill, head %}
+{% block content %}
+{% set n = d.instance %}
+<div class="page-head">
+  <div><h1 class="row"><span class="mono">{{ n.name }}</span> {{ pill('ok' if n.status == 'ACTIVE' else 'critical', n.status) }}</h1><p>{{ n.flavor }} · {{ n.gpus }} × {{ n.gpu }} · {{ n.zone }} · project {{ n.project }}</p></div>
+  <div class="page-actions"><a class="btn" href="/cloud/nhn">All instances</a></div>
+</div>
+<div class="g g-5">
+  <div class="panel tight">{{ kpi('GPU utilization', n.util, '%', '', size='s') }}</div>
+  <div class="panel tight">{{ kpi('GPU memory', n.gpu_mem_pct, '%', n.gpu, size='s') }}</div>
+  <div class="panel tight">{{ kpi('Hourly', '{:,}'.format(n.krw_hr), '₩/h', 'on-demand', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Uptime', d.uptime_s|dur, '', 'since ' ~ (n.launched|kst), size='s') }}</div>
+  <div class="panel tight">{{ kpi('Accrued', (n.krw_hr * d.uptime_s / 3600)|krw, '', 'this instance', size='s') }}</div>
+</div>
+<div class="panel mt">
+  {{ head('Instance') }}
+  <div class="kv"><span>Instance ID</span><span class="mono">{{ n.id }}</span><span>Flavor</span><span class="mono">{{ n.flavor }}</span><span>Availability zone</span><span>{{ n.zone }}</span>
+    <span>Project</span><span>{{ n.project }}</span><span>Image</span><span class="mono">grid/vllm:0.11.2 (NHN mirror)</span><span>Network</span><span>private link → eth-leaf-47/48</span></div>
+</div>
+{% endblock %}

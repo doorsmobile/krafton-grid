@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head, chead, icon, sev %}
+{% block content %}
+{% set L = live %}
+{% for inc in d.incidents if inc.severity == 'critical' %}
+{% if loop.first %}
+<a class="banner" href="/alerts?incident={{ inc.id }}">
+  {{ sev('critical') }}<span><b>{{ inc.id }} · {{ inc.title }}</b> — {{ inc.root_cause }}{% if inc.impact %} · <span class="muted">{{ inc.impact }}</span>{% endif %}</span>
+  <span class="grow"></span><span class="muted small">{{ inc.alerts|length }} correlated alerts · open {{ inc.opened|ago }}</span>{{ icon('arrow') }}
+</a>
+{% endif %}
+{% endfor %}
+
+<div class="page-head">
+  <div>
+    <h1>Main</h1>
+    <p>Krafton Grid 100 MW AIDC · Phase 1 (M1) live — {{ '{:,}'.format(L.gpu.total) }} NVIDIA B300 across {{ L.gpu.nodes }} HGX nodes. Every card opens its detail page.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/observability/mission-control">{{ icon('spark') }} Ask Mission Control</a>
+    <a class="btn" href="/campus-aerial">{{ icon('map') }} Campus</a>
+  </div>
+</div>
+
+<div class="g g-6">
+  {% for k in d.kpis %}
+  <div class="panel tight">{{ kpi(k.label, k.display, k.unit, k.sub, live=k.path, fmt=k.fmt, spark='kspark-' ~ k.id, size='s') }}</div>
+  {% endfor %}
+</div>
+
+<div class="section-title">Facility</div>
+<div class="g g-3">
+  <a class="panel" href="/facility/power">
+    {{ chead('Power', 'KEPCO 154 kV × 2 → UPS A/B · 2N', 'Power') }}
+    <div class="row between top">
+      {{ kpi('IT load', L.site.it_mw|num(2), 'MW', 'facility <span data-live="site.facility_mw" data-fmt="f2">' ~ (L.site.facility_mw|num(2)) ~ '</span> MW', live='site.it_mw', fmt='f2') }}
+      <div class="right"><div class="kpi-label" style="justify-content:flex-end">Redundancy</div><span data-live-pill="power.redundancy" class="pill {{ L.power.redundancy|level }}">{{ L.power.redundancy }}</span></div>
+    </div>
+    <div class="mt-s small muted row between"><span>A-path <b class="tnum" data-live="power.side_mw.A" data-fmt="f2">{{ L.power.side_mw.A|num(2) }}</b> MW</span><span>B-path <b class="tnum" data-live="power.side_mw.B" data-fmt="f2">{{ L.power.side_mw.B|num(2) }}</b> MW</span></div>
+    <div class="stack-bar mt-s"><i style="width:50%;background:var(--teal)" id="ab-a"></i><i style="flex:1;background:var(--steel-2)"></i></div>
+    <div class="g g-3 mt" style="gap:8px">
+      {% for h in ['HA','HB','HC'] %}
+      <div class="mini"><div class="l">UPS {{ h }} A/B</div>
+        <div class="bar mt-s">{% set u = L.power.ups['UPS-A-' ~ h] %}<i style="width:{{ u.load_pct }}%" data-live-bar="power.ups.UPS-A-{{ h }}.load_pct"></i></div>
+        <div class="bar mt-s">{% set u = L.power.ups['UPS-B-' ~ h] %}<i class="steel" style="width:{{ u.load_pct }}%" data-live-bar="power.ups.UPS-B-{{ h }}.load_pct"></i></div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="chart xs mt-s" id="c-facility"></div>
+  </a>
+
+  <a class="panel" href="/facility/capacity">
+    {{ chead('Capacity', '5 × 20 MW modular · 100 MW envelope', 'Capacity') }}
+    <div class="row top">
+      <div id="g-capacity" style="width:150px;height:118px;flex:none"></div>
+      <div class="grow col" style="gap:7px">
+        {% for hid, h in L.site.halls.items() %}
+        <div class="meter" title="{{ h.purpose }}"><span>{{ h.name }}</span><span class="tnum">{{ h.it_mw|num(2) }} / {{ h.design_mw|num(0) }} MW</span>{{ bar(h.util_pct, '' if hid != 'HD' else 'steel', live='site.halls.' ~ hid ~ '.util_pct') }}</div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="row mt" style="gap:6px">
+      {% for m in d.facility.modules %}
+      <div class="mini grow" style="padding:8px 9px"><div class="row between"><b class="mono small">{{ m.id }}</b><span class="dot {{ 'ok' if m.status == 'live' else ('warn' if m.status == 'construction' else '') }}"></span></div>
+        <div class="xs muted" title="RFS {{ m.rfs }}">{{ m.status }}</div></div>
+      {% endfor %}
+    </div>
+  </a>
+
+  <a class="panel" href="/facility/cooling">
+    {{ chead('Cooling', 'Liquid-first · N+1 CDUs + chillers', 'Cooling') }}
+    <div class="row between top">
+      {{ kpi('Rack coolant (TCS) max', L.cooling.tcs_supply_max_c|num(1), '°C', 'avg <span data-live="cooling.tcs_supply_avg_c" data-fmt="f1">' ~ (L.cooling.tcs_supply_avg_c|num(1)) ~ '</span> °C · CHW <span data-live="cooling.chw_supply_c" data-fmt="f1">' ~ (L.cooling.chw_supply_c|num(1)) ~ '</span> °C', live='cooling.tcs_supply_max_c', fmt='f1') }}
+      <div class="right"><div class="kpi-label" style="justify-content:flex-end">Redundancy</div><span data-live-pill="cooling.redundancy" class="pill {{ L.cooling.redundancy|level }}">{{ L.cooling.redundancy }}</span></div>
+    </div>
+    <div class="meter mt-s"><span>Free cooling</span><span class="tnum"><span data-live="cooling.free_cooling_pct" data-fmt="f1">{{ L.cooling.free_cooling_pct }}</span>%</span>{{ bar(L.cooling.free_cooling_pct, live='cooling.free_cooling_pct') }}</div>
+    <div class="row wrap mt" style="gap:5px" id="cdu-chips">
+      {% for cid, c in L.cooling.cdus.items() %}<span class="cdu-chip {{ c.status }}" data-cdu="{{ cid }}" title="{{ cid }} · {{ c.status }}{% if c.covering %} · covering {{ c.covering }}{% endif %}">{{ cid[4:] }}</span>{% endfor %}
+    </div>
+    <div class="chart xs mt-s" id="c-cooling"></div>
+  </a>
+</div>
+
+<div class="section-title">AI</div>
+<div class="g g-3">
+  <a class="panel" href="/gpu-fleet">
+    {{ chead('GPU · NVIDIA B300', '5,000 GPUs · Slurm + CubeFlow', 'GPU Monitoring') }}
+    <div class="row between top">
+      {{ kpi('Fleet utilization', L.gpu.avg_util|num(1), '%', 'SM <span data-live="gpu.avg_sm" data-fmt="f1">' ~ (L.gpu.avg_sm|num(1)) ~ '</span>% · max <span data-live="gpu.max_temp" data-fmt="f1">' ~ (L.gpu.max_temp|num(1)) ~ '</span> °C', live='gpu.avg_util', fmt='f1') }}
+      <div class="right small"><div class="muted">throttling</div><b class="tnum" data-live="gpu.thermal_throttle">{{ L.gpu.thermal_throttle }}</b><div class="muted mt-s">failed</div><b class="tnum" data-live="gpu.failed">{{ L.gpu.failed }}</b></div>
+    </div>
+    <div class="col mt-s" style="gap:6px">
+      <div class="meter"><span>Allocated</span><span class="tnum"><span data-live="gpu.allocated" data-fmt="int">{{ '{:,}'.format(L.gpu.allocated) }}</span></span>{{ bar(L.gpu.allocated / L.gpu.total * 100, live='gpu.allocated', max=L.gpu.total) }}</div>
+      <div class="meter"><span>Effective (SM ≥ 40%)</span><span class="tnum"><span data-live="gpu.effective" data-fmt="int">{{ '{:,}'.format(L.gpu.effective) }}</span></span>{{ bar(L.gpu.effective / L.gpu.total * 100, 'info', live='gpu.effective', max=L.gpu.total) }}</div>
+    </div>
+    <div class="chart xs mt-s" id="c-gpu"></div>
+  </a>
+
+  <a class="panel" href="/kubernetes">
+    {{ chead('Kubernetes · Dell XE9680', '3 control-plane + 27 workers', 'Kubernetes') }}
+    <div class="row between top">
+      {{ kpi('Pods running', L.k8s.pods_running, '', '<span data-live="k8s.ready">' ~ L.k8s.ready ~ '</span>/' ~ L.k8s.nodes ~ ' nodes ready · <span data-live="k8s.gw_replicas">' ~ L.k8s.gw_replicas ~ '</span> gateway replicas', live='k8s.pods_running', fmt='int') }}
+      <div class="right small"><div class="muted">req/s</div><b class="tnum" data-live="k8s.rps" data-fmt="int">{{ '{:,}'.format(L.k8s.rps) }}</b></div>
+    </div>
+    <div class="col mt-s" style="gap:6px">
+      <div class="meter"><span>CPU</span><span class="tnum"><span data-live="k8s.cpu_pct" data-fmt="f1">{{ L.k8s.cpu_pct }}</span>%</span>{{ bar(L.k8s.cpu_pct, live='k8s.cpu_pct', warn=75, crit=90) }}</div>
+      <div class="meter"><span>Memory</span><span class="tnum"><span data-live="k8s.mem_pct" data-fmt="f1">{{ L.k8s.mem_pct }}</span>%</span>{{ bar(L.k8s.mem_pct, 'steel', live='k8s.mem_pct') }}</div>
+    </div>
+    <div class="chart xs mt-s" id="c-k8s"></div>
+  </a>
+
+  <a class="panel" href="/storage">
+    {{ chead('Storage · IBM Storage Scale', 'hot NVMe · capacity QLC · archive', 'Storage') }}
+    <div class="row between top">
+      {{ kpi('Used', L.storage.used_pb|num(1), '/ 100 PB', 'read <span data-live="storage.read_gbs" data-fmt="int">' ~ (L.storage.read_gbs|num) ~ '</span> · write <span data-live="storage.write_gbs" data-fmt="int">' ~ (L.storage.write_gbs|num) ~ '</span> GB/s', live='storage.used_pb', fmt='f1') }}
+      <div class="right small"><div class="muted">hot latency</div><b class="tnum"><span data-live="storage.latency_ms" data-fmt="f2">{{ L.storage.latency_ms|num(2) }}</span> ms</b></div>
+    </div>
+    <div class="mt-s">{{ bar(L.storage.used_pct, live='storage.used_pct', warn=85, crit=95, size='lg') }}</div>
+    <div class="chart xs mt" id="c-storage"></div>
+  </a>
+</div>
+
+<div class="section-title">Cloud <span class="faint" style="letter-spacing:0;text-transform:none;font-weight:500">AWS → GCP → NHN</span></div>
+<div class="g g-3">
+  <a class="panel" href="/cloud/aws">
+    {{ chead('AWS · GPUaaS', 'EC2 p6-b200 / p5en · Capacity Blocks', 'AWS') }}
+    <div class="row between top">
+      {{ kpi('Instances running', L.cloud.aws.running, '', '<span data-live="cloud.aws.gpus">' ~ L.cloud.aws.gpus ~ '</span> GPUs · ' ~ ('<span data-live="cloud.aws.burst_jobs">' ~ L.cloud.aws.burst_jobs ~ '</span> burst jobs'), live='cloud.aws.running', fmt='int') }}
+      <div class="right small"><div class="muted">burn</div><b class="tnum" data-live="cloud.aws.cost_hr_krw" data-fmt="krw">{{ L.cloud.aws.cost_hr_krw|krw }}</b><span class="muted">/h</span></div>
+    </div>
+    <div class="col mt-s" style="gap:6px">
+      <div class="meter"><span>GPU utilization</span><span class="tnum"><span data-live="cloud.aws.gpu_util" data-fmt="f1">{{ L.cloud.aws.gpu_util }}</span>%</span>{{ bar(L.cloud.aws.gpu_util, live='cloud.aws.gpu_util') }}</div>
+      <div class="meter"><span>Capacity Block used</span><span class="tnum"><span data-live="cloud.aws.cb_used">{{ L.cloud.aws.cb_used }}</span> / {{ L.cloud.aws.cb_capacity }}</span>{{ bar(L.cloud.aws.cb_used / L.cloud.aws.cb_capacity * 100, 'violet', live='cloud.aws.cb_used', max=L.cloud.aws.cb_capacity) }}</div>
+    </div>
+    <div class="chart xs mt-s" id="c-aws"></div>
+  </a>
+  <a class="panel" href="/cloud/gcp">
+    {{ chead('GCP · Storage', 'GCS + Persistent Disk · asia-northeast3', 'GCP') }}
+    <div class="row between top">
+      {{ kpi('GCS used', L.cloud.gcp.used_tb|num(0), 'TB', '<span data-live="cloud.gcp.ops_s" data-fmt="int">' ~ ('{:,}'.format(L.cloud.gcp.ops_s)) ~ '</span> ops/s · egress <span data-live="cloud.gcp.egress_gbps" data-fmt="f1">' ~ (L.cloud.gcp.egress_gbps|num(1)) ~ '</span> Gb/s', live='cloud.gcp.used_tb', fmt='int') }}
+      <div class="right small"><div class="muted">burn</div><b class="tnum" data-live="cloud.gcp.cost_hr_krw" data-fmt="krw">{{ L.cloud.gcp.cost_hr_krw|krw }}</b><span class="muted">/h</span></div>
+    </div>
+    <div class="mt-s small muted row between"><span>{{ L.cloud.gcp.buckets }} buckets</span><span>{{ L.cloud.gcp.disks }} disks · {{ L.cloud.gcp.disk_tb }} TB</span></div>
+    <div class="bar mt-s"><i class="info" style="width:{{ (L.cloud.gcp.used_tb / 8000 * 100)|round(1) }}%"></i></div>
+    <div class="chart xs mt" id="c-gcp"></div>
+  </a>
+  <a class="panel" href="/cloud/nhn">
+    {{ chead('NHN Cloud · GPUaaS', 'H100 / A100 / L40S · KR1', 'NHN') }}
+    <div class="row between top">
+      {{ kpi('Instances active', L.cloud.nhn.active, '', '<span data-live="cloud.nhn.gpus">' ~ L.cloud.nhn.gpus ~ '</span> GPUs of ' ~ L.cloud.nhn.instances ~ ' instances', live='cloud.nhn.active', fmt='int') }}
+      <div class="right small"><div class="muted">burn</div><b class="tnum" data-live="cloud.nhn.cost_hr_krw" data-fmt="krw">{{ L.cloud.nhn.cost_hr_krw|krw }}</b><span class="muted">/h</span></div>
+    </div>
+    <div class="meter mt-s"><span>GPU utilization</span><span class="tnum"><span data-live="cloud.nhn.gpu_util" data-fmt="f1">{{ L.cloud.nhn.gpu_util }}</span>%</span>{{ bar(L.cloud.nhn.gpu_util, live='cloud.nhn.gpu_util') }}</div>
+    <div class="chart xs mt" id="c-nhn"></div>
+  </a>
+</div>
+
+<div class="section-title">Performance</div>
+<div class="g g-12">
+  <div class="panel s-8">
+    {{ head('GPU utilization vs critical IT load', 'last 60 min · 2 s resolution', '/observability/explore', 'Explore') }}
+    <div class="chart l" id="c-perf"></div>
+  </div>
+  <div class="panel s-4">
+    {{ head('PUE · 24 h', 'target ' ~ TARGET_PUE, '/facility/energy', 'Energy') }}
+    <div class="chart l" id="c-pue"></div>
+  </div>
+  <div class="panel s-8">
+    {{ head('Rack power & thermals', '40 GPU racks · color = hottest GPU · click a rack', '/rack-view', 'Rack View') }}
+    <div class="floor-racks" id="rack-strip" style="grid-template-columns:repeat(20,minmax(0,1fr));gap:5px">
+      {% for r in d.racks %}
+      <a class="rack-tile" href="/rack/{{ r.id }}" data-rack="{{ r.id }}" style="min-height:62px;padding:6px 6px 8px">
+        <b style="font-size:10.5px">{{ r.id }}</b><span class="rk" data-f="kw">{{ r.kw|num(0) }}</span><span class="rk" data-f="t">{{ r.temp_max|num(0) }}°</span><span class="heat"></span>
+      </a>
+      {% endfor %}
+    </div>
+    <div class="row between mt-s"><div class="scale">cool<span class="ramp" id="rack-ramp"></span>hot</div><span class="xs muted">kW · max °C</span></div>
+  </div>
+  <div class="panel s-4">
+    {{ head('Live events', 'alerts · scenarios · XIDs · operator actions', '/observability/explore', 'Timeline') }}
+    <div class="list" id="events">
+      {% for e in d.events[:7] %}
+      <div class="list-item"><span class="dot {{ e.level|level }}" style="margin-top:6px"></span><div class="li-main"><div class="small">{{ e.text }}</div><div class="xs faint">{{ e.t|kst }} · {{ e.kind }}</div></div></div>
+      {% else %}<div class="empty">Quiet — no events yet.</div>{% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C, F = Grid.fmt;
+  const kSpecs = [
+    ["kspark-it", "site_it_mw", "site.it_mw", C.teal], ["kspark-pue", "site_pue", "site.pue", C.steel], ["kspark-gpu", "gpu_util_avg", "gpu.avg_util", C.teal],
+    ["kspark-jobs", "slurm_jobs_running", "gpu.jobs_running", C.sky], ["kspark-alerts", "alerts_firing", "alerts.firing", C.amber], ["kspark-power_today", "cost_rate_24h", "cost.rate.krw_kwh", C.violet],
+  ];
+  const cSpecs = [
+    ["c-facility", "site_facility_mw", 0, "site.facility_mw", C.teal], ["c-cooling", "cooling_tcs_supply_c", 0, "cooling.row_supply_c.A1", C.sky],
+    ["c-gpu", "gpu_util_avg", 0, "gpu.avg_util", C.teal], ["c-k8s", "k8s_rps", 0, "k8s.rps", C.violet], ["c-storage", "storage_read_total_gbs", 0, "storage.read_gbs", C.teal],
+    ["c-aws", "cloud_cost_hr_krw", 0, "cloud.aws.cost_hr_krw", C.amber], ["c-gcp", "cloud_cost_hr_krw", 1, "cloud.gcp.cost_hr_krw", C.info], ["c-nhn", "cloud_cost_hr_krw", 2, "cloud.nhn.cost_hr_krw", C.ok],
+  ];
+  const charts = [];
+  await Promise.all(kSpecs.map(async ([id, m, path, color]) => {
+    const pts = await K.series(m, { minutes: m.endsWith("_24h") ? 1440 : 30, points: 200 });
+    charts.push({ c: K.spark(id, pts, { color }), path, h: m.endsWith("_24h") });
+  }).concat(cSpecs.map(async ([id, m, col, path, color]) => {
+    const pts = await K.series(m, { col, minutes: 30, points: 200 });
+    charts.push({ c: K.spark(id, pts, { color }), path });
+  })));
+  const g = K.gauge("g-capacity", Grid.live.site.util_pct, { label: "M1 used", unit: "%", decimals: 1, size: 20 });
+  const [gpu, it] = await Promise.all([K.series("gpu_util_avg", { minutes: 60 }), K.series("site_it_mw", { minutes: 60 })]);
+  const perf = K.line("c-perf", [{ name: "GPU util %", data: gpu, type: "areaspline", color: C.teal }, { name: "IT load MW", data: it, yAxis: 1, color: C.steel }],
+    { y2: "MW", yFormat: "{value}%", min: 0, max: 100, decimals: 2 });
+  const pue = K.line("c-pue", [{ name: "PUE", data: await K.series("site_pue_24h", { minutes: 1440 }), type: "areaspline", color: C.steel }],
+    { plotLines: [{ value: {{ TARGET_PUE }}, color: C.teal, dashStyle: "Dash", width: 1, label: { text: "target {{ TARGET_PUE }}", style: { color: C.teal, fontSize: "10px" } } }], decimals: 3, softMin: 1.1, softMax: 1.3 });
+  document.getElementById("rack-ramp").style.background = HeatGrid.rampCSS("temp");
+
+  const paintRacks = (L) => {
+    const kw = L.racks.kw;
+    L.racks.id.forEach((id, i) => {
+      const el = document.querySelector(`[data-rack="${id}"]`); if (!el) return;
+      el.querySelector('[data-f="kw"]').textContent = F.int(kw[i]);
+    });
+  };
+  Grid.onLive((L) => {
+    const ms = L.ts * 1000;
+    for (const s of charts) { if (!s.h) K.push(s.c, 0, ms, Grid.pick(L, s.path), 900); }
+    K.push(perf, 0, ms, L.gpu.avg_util); K.push(perf, 1, ms, L.site.it_mw);
+    g.series[0].points[0].update(L.site.util_pct, true, false);
+    const a = L.power.side_mw.A, b = L.power.side_mw.B; document.getElementById("ab-a").style.width = (a / (a + b) * 100) + "%";
+    Object.entries(L.cooling.cdus).forEach(([id, c]) => { const el = document.querySelector(`[data-cdu="${id}"]`); if (el) { el.className = "cdu-chip " + c.status; el.title = `${id} · ${c.status}${c.covering ? " · covering " + c.covering : ""}`; } });
+    paintRacks(L);
+  });
+  Grid.every(10000, async () => {
+    const m = await Grid.getJSON("/api/gpu/fleet");
+    m.racks.forEach((r) => {
+      const el = document.querySelector(`[data-rack="${r.id}"]`); if (!el) return;
+      el.querySelector('[data-f="t"]').textContent = F.int(r.temp_max) + "°";
+      el.querySelector(".heat").style.background = HeatGrid.color("temp", (r.temp_max - 25) / 67);
+      el.classList.toggle("crit", r.throttle > 0 || r.failed > 0); el.classList.toggle("warn", r.temp_max > 80 && !r.throttle);
+    });
+    const ev = await Grid.getJSON("/api/observability/events?minutes=60");
+    const box = document.getElementById("events");
+    if (ev.events.length) box.innerHTML = ev.events.slice(0, 7).map((e) => `<a class="list-item" href="${e.href || '/observability/explore'}"><span class="dot ${Grid.level(e.level)}" style="margin-top:6px"></span><div class="li-main"><div class="small">${Grid.esc(e.text)}</div><div class="xs faint">${F.kst(e.t)} · ${Grid.esc(e.kind)}</div></div></a>`).join("");
+  });
+})();
+</script>
+{% endblock %}

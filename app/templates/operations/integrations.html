@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import pill, head, icon %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Slack · Webhooks</h1><p>Where alerts go. Each firing or resolved alert is matched against the routing table and fanned out to Slack channels (Block Kit), a generic ITSM webhook and PagerDuty. Delivery is <b>{{ 'LIVE' if d.live_delivery else 'dry-run' }}</b>{% if not d.live_delivery %} — payloads are rendered and logged but not sent; set <code>ALERTS_LIVE_DELIVERY=1</code> and <code>SLACK_WEBHOOK_URL</code> to deliver{% endif %}.</p></div>
+  <div class="page-actions"><a class="btn" href="/alerts/config">Alert config</a><a class="btn" href="/alerts">Alerts</a></div>
+</div>
+{% if not d.live_delivery %}<div class="banner warn"><b>Dry-run mode</b><span>Nothing leaves this server. Every notification below is exactly what would be posted.</span></div>{% endif %}
+<div class="g g-3">
+  {% for i in d.integrations %}
+  <div class="panel">
+    <div class="panel-head"><div><div class="panel-title">{{ i.name }}</div><div class="panel-sub">{{ i.kind }}{% if i.mode %} · {{ i.mode }}{% endif %}</div></div>
+      <button class="switch {{ 'on' if i.enabled else '' }}" data-integ="{{ i.id }}" aria-label="toggle {{ i.name }}"></button></div>
+    {% if i.kind == 'slack' %}
+      <div class="kv"><span>Default channel</span><span class="mono">{{ i.default_channel }}</span>{% for k, v in i.channels.items() %}<span>{{ k }}</span><span class="mono">{{ v }}</span>{% endfor %}
+        <span>Webhook</span><span>{{ 'env SLACK_WEBHOOK_URL' if d.slack_env else ('configured' if i.webhook_url else 'not set') }}</span></div>
+    {% elif i.kind == 'webhook' %}
+      <div class="kv"><span>URL</span><span class="mono xs">{{ i.url }}</span><span>HMAC secret</span><span>{{ 'set' if i.secret_set else 'not set' }}</span><span>Format</span><span>JSON · alert.firing / alert.resolved</span></div>
+    {% else %}
+      <div class="kv"><span>Routing key</span><span>{{ 'set' if i.routing_key_set else 'not set' }}</span><span>Used for</span><span>critical only</span></div>
+    {% endif %}
+    <div class="row mt" style="gap:6px">
+      {% if i.kind == 'slack' %}{% for ch in [i.default_channel] + i.channels.values()|list %}<button class="btn sm" data-test="slack:{{ ch }}">Test {{ ch }}</button>{% endfor %}
+      {% else %}<button class="btn sm" data-test="{{ i.id }}">Send test</button>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-5 flush">
+    {{ head('Routing table', 'first match per target · severities at or above min', '/alerts/config', 'Edit') }}
+    <table class="t"><thead><tr><th>Route</th><th>Category</th><th>Min severity</th><th>Targets</th></tr></thead><tbody>
+      {% for r in d.routes %}<tr><td class="mono small">{{ r.id }}</td><td class="mono small">{{ r.match_category }}</td><td><span class="sev {{ r.min_severity }}">{{ r.min_severity }}</span></td><td>{% for t in r.targets %}<span class="tag">{{ t }}</span> {% endfor %}</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+  <div class="panel s-7">
+    {{ head('Slack preview', 'latest rendered Block Kit payload') }}
+    <div id="preview" class="slack-preview"><div class="empty">Send a test or trigger an alert to see the message.</div></div>
+  </div>
+</div>
+<div class="panel mt flush">
+  {{ head('Delivery log', d.deliveries|length ~ ' most recent · click a row for the raw payload') }}
+  <div class="table-wrap scroll-l"><table class="t" id="t-dl"><thead><tr><th>Time</th><th>Target</th><th>Kind</th><th>Alert</th><th>Severity</th><th>State</th><th>Status</th><th>Detail</th></tr></thead><tbody>
+    {% for x in d.deliveries %}<tr id="dl-{{ x.id }}" class="dl" data-payload="{{ x.payload }}" style="cursor:pointer"><td class="mono small">{{ x.t|kst }}</td><td class="mono small">{{ x.target }}</td><td>{{ x.kind }}</td><td class="small">{{ x.alert_name }}</td><td><span class="sev {{ x.severity }}">{{ x.severity }}</span></td><td>{{ pill(x.state) }}</td><td><span class="tag">{{ x.status }}</span></td><td class="xs muted">{{ x.detail }}</td></tr>
+    {% else %}<tr><td colspan="8" class="empty">No deliveries yet.</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+<div class="overlay" id="m-pay"><div class="modal" style="width:min(760px,94vw)"><div class="row between mb"><h3 style="margin:0">Payload</h3><button class="btn sm" id="m-close">Close</button></div><pre class="code" id="m-body" style="max-height:60vh"></pre></div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  function slack(p) {
+    try { p = typeof p === "string" ? JSON.parse(p) : p; } catch (e) { return `<pre class="code">${Grid.esc(p)}</pre>`; }
+    if (!p.attachments) return `<pre class="code">${Grid.esc(JSON.stringify(p, null, 2))}</pre>`;
+    const a = p.attachments[0], mr = (t) => Grid.esc(t).replace(/\*([^*]+)\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\n/g, "<br>");
+    const blocks = a.blocks.map((b) => b.type === "section" ? `<div class="sp-sec">${mr(b.text.text)}</div>`
+      : b.type === "context" ? `<div class="sp-ctx">${b.elements.map((e) => mr(e.text)).join(" · ")}</div>`
+      : b.type === "actions" ? `<div class="sp-act">${b.elements.map((e) => `<span class="btn sm">${Grid.esc(e.text.text)}</span>`).join("")}</div>` : "").join("");
+    return `<div class="sp-head"><span class="sp-app">Krafton Grid</span><span class="tag">APP</span><span class="xs muted">${Grid.esc(p.channel)}</span></div><div class="sp-body" style="border-left-color:${a.color}">${blocks}</div>`;
+  }
+  const first = document.querySelector("tr.dl"); if (first) $("preview").innerHTML = slack(first.dataset.payload);
+  document.querySelectorAll("tr.dl").forEach((tr) => tr.addEventListener("click", () => {
+    let p = tr.dataset.payload; try { p = JSON.stringify(JSON.parse(p), null, 2); } catch (e) { }
+    $("m-body").textContent = p; $("m-pay").classList.add("on"); $("preview").innerHTML = slack(tr.dataset.payload);
+  }));
+  $("m-close").addEventListener("click", () => $("m-pay").classList.remove("on"));
+  $("m-pay").addEventListener("click", (e) => { if (e.target.id === "m-pay") $("m-pay").classList.remove("on"); });
+  document.querySelectorAll("[data-test]").forEach((b) => b.addEventListener("click", async () => {
+    try { const r = await Grid.postJSON("/api/alerts/integrations/test", { target: b.dataset.test }); $("preview").innerHTML = slack(r.payload); Grid.toast("ok", "Test rendered · " + r.status, r.target); setTimeout(() => location.reload(), 1200); }
+    catch (e) { Grid.toast("critical", "Test failed", e.message); }
+  }));
+  document.querySelectorAll("[data-integ]").forEach((b) => b.addEventListener("click", async () => {
+    const on = !b.classList.contains("on");
+    try { await Grid.postJSON("/api/alerts/integrations/" + b.dataset.integ, { enabled: on }); b.classList.toggle("on", on); Grid.toast("ok", `${b.dataset.integ} ${on ? "enabled" : "disabled"}`); }
+    catch (e) { Grid.toast("critical", "Update failed", e.message); }
+  }));
+})();
+</script>
+{% endblock %}

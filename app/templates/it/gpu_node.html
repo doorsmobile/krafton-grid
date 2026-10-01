@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set n = d.node %}
+<div class="page-head">
+  <div><h1 class="row">{{ n.id }} {{ pill(n.state) }}</h1>
+    <p>{{ n.model }} · rack <a class="link" href="/rack/{{ n.rack }}">{{ n.rack }}</a> slot {{ n.slot }} · row {{ n.row }} · {{ n.hall }} · partition <b>{{ n.partition }}</b>{% if n.reason %} · <span class="t-warn">{{ n.reason }}</span>{% endif %}</p></div>
+  <div class="page-actions">
+    {% if n.state in ['drain', 'down'] %}<button class="btn" data-post="/api/gpu/node/{{ n.id }}/resume" data-done="Resume requested" data-reload>Resume node</button>
+    {% else %}<button class="btn danger" data-post="/api/gpu/node/{{ n.id }}/drain" data-body='{"reason":"operator drain from console"}' data-confirm="Drain {{ n.id }}? Running jobs on it will fail and requeue." data-done="Node drained" data-reload>Drain (Slurm)</button>{% endif %}
+    <button class="btn" data-post="/api/gpu/device/{{ n.id }}-g3/xid" data-body='{"code":79}' data-confirm="Inject Xid 79 (GPU fell off the bus) on GPU3? This drains the node." data-done="Xid injected" data-reload>Inject Xid 79</button>
+  </div>
+</div>
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('GPU utilization', n.util|num(1), '%', 'SM ' ~ n.sm ~ '%', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Node power', n.power_kw|num(2), 'kW', '8 × B300 + host', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Hottest GPU', n.temp_max|num(1), '°C', 'avg ' ~ n.temp_avg ~ ' · coolant ' ~ n.coolant_c ~ ' °C', size='s') }}</div>
+  <div class="panel tight">{{ kpi('HBM in use', n.mem_gb|num(0), 'GB', 'of 2,304 GB', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Host', n.cpu|num(0), '% CPU', 'mem ' ~ (n.host_mem|num(0)) ~ '% · IB ' ~ (n.ib_gbps|num(0)) ~ ' Gb/s', size='s') }}</div>
+  <div class="panel tight">{{ kpi('GPUs', n.gpus_alloc, '/ 8 allocated', n.gpus_failed ~ ' failed · ' ~ n.throttling ~ ' throttling', size='s') }}</div>
+</div>
+
+<div class="section-title">GPUs</div>
+<div class="g g-4" id="gpus">
+  {% for g in d.gpus %}
+  <a class="panel tight {{ 'crit' if g.health == 'failed' else ('warn' if g.throttle != 'none' else '') }}" href="/gpu-fleet/device/{{ g.id }}">
+    <div class="row between"><b class="mono">GPU{{ g.slot }}</b>{{ pill(g.health) }}</div>
+    <div class="col mt-s" style="gap:6px">
+      <div class="meter"><span class="muted">util</span><span class="tnum">{{ g.util|num(0) }}%</span>{{ bar(g.util) }}</div>
+      <div class="meter"><span class="muted">temp</span><span class="tnum {{ 't-crit' if g.temp_c >= 87 else ('t-warn' if g.temp_c >= 80 else '') }}">{{ g.temp_c|num(1) }} °C</span>{{ bar((g.temp_c - 25) / 67 * 100, 'crit' if g.temp_c >= 87 else ('warn' if g.temp_c >= 80 else 'info')) }}</div>
+      <div class="meter"><span class="muted">power</span><span class="tnum">{{ g.power_w|num(0) }} W</span>{{ bar(g.power_w / 11, 'steel') }}</div>
+      <div class="meter"><span class="muted">HBM</span><span class="tnum">{{ g.mem_gb|num(0) }} / 288 GB</span>{{ bar(g.mem_pct, 'violet') }}</div>
+    </div>
+    <div class="xs muted mt-s">{{ g.clock_mhz }} MHz · NVLink {{ g.nvlink_gbs|num(0) }} GB/s · ECC {{ g.ecc_sbe }}/{{ g.ecc_dbe }}{% if g.xid %} · <span class="t-crit">Xid {{ g.xid }}</span>{% endif %}{% if g.mig %} · MIG ×{{ g.mig|length }}{% endif %}</div>
+  </a>
+  {% endfor %}
+</div>
+
+<div class="g g-12 mt">
+  <div class="panel s-8">{{ head('Node telemetry', 'GPU util · power · max temp · 60 min (10 s resolution)') }}<div class="chart l" id="c-node"></div></div>
+  <div class="panel s-4">
+    {{ head('Placement & dependencies') }}
+    <div class="stat-line"><span>IB leaf</span><span><a class="link mono" href="/network/device/{{ d.fabric.ib_leaf.id }}">{{ d.fabric.ib_leaf.id }}</a> {{ pill(d.fabric.ib_leaf.status) }}</span></div>
+    <div class="stat-line"><span>IB leaf util · links down</span><span>{{ d.fabric.ib_leaf.util_pct }}% · {{ d.fabric.ib_leaf.links_down }}</span></div>
+    <div class="stat-line"><span>Ethernet ToR</span><span><a class="link mono" href="/network/device/{{ d.fabric.eth_leaf.id }}">{{ d.fabric.eth_leaf.id }}</a></span></div>
+    <div class="stat-line"><span>Row CDU</span><span><a class="link mono" href="/facility/cooling/{{ d.cooling.cdu }}">{{ d.cooling.cdu }}</a> {{ pill(d.cooling.cdu_status) }}</span></div>
+    <div class="stat-line"><span>Coolant supply</span><span class="{{ 't-warn' if d.cooling.supply_c > 38.5 else '' }}">{{ d.cooling.supply_c }} °C</span></div>
+    <div class="stat-line"><span>Power A / B</span><span><a class="link mono" href="/facility/power/{{ d.power.busway_a }}">{{ d.power.busway_a }}</a> · <a class="link mono" href="/facility/power/{{ d.power.busway_b }}">{{ d.power.busway_b }}</a></span></div>
+    <div class="stat-line"><span>UPS A / B</span><span><a class="link mono" href="/facility/power/{{ d.power.ups_a }}">{{ d.power.ups_a }}</a> · <a class="link mono" href="/facility/power/{{ d.power.ups_b }}">{{ d.power.ups_b }}</a></span></div>
+    <div class="stat-line"><span>Slurm gres · features</span><span class="mono small">{{ d.slurm.gres }} · {{ d.slurm.features|join(',') }}</span></div>
+  </div>
+</div>
+
+<div class="g g-12 mt">
+  <div class="panel s-7 flush">
+    {{ head('Jobs on this node', 'Slurm / CubeFlow') }}
+    <table class="t"><thead><tr><th>Job</th><th>Name</th><th>Project</th><th>User</th><th>Orchestrator</th><th class="right">GPUs</th><th>Progress</th><th class="right">Speed</th></tr></thead><tbody>
+      {% for j in n.jobs %}<tr data-href="/gpu-fleet/job/{{ j.id }}"><td class="mono">{{ j.id }}</td><td>{{ j.name }}</td><td>{{ j.project }}</td><td>{{ j.user }}</td><td>{{ j.orchestrator }}</td><td class="right">{{ j.gpus }}</td>
+        <td>{% if j.service %}<span class="tag">service</span>{% else %}<div class="cell-bar">{{ bar(j.progress) }}<span class="xs muted">{{ j.progress }}%</span></div>{% endif %}</td><td class="right">{{ j.speed }}×</td></tr>
+      {% else %}<tr><td colspan="8" class="empty">No jobs — node is {{ n.state }}.</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+  <div class="panel s-5">
+    {{ head('Node events', 'XID · drain · resume · jobs') }}
+    <div class="timeline">{% for e in n.events %}<div class="tl-item {{ 'alert' if e.kind in ['xid','drain','down'] else '' }}"><span class="tl-t">{{ e.t|kst }}</span>{{ e.text }}</div>{% else %}<div class="muted small">No events recorded for this node.</div>{% endfor %}</div>
+  </div>
+</div>
+
+<div class="panel mt">
+  {{ head('Rack ' ~ n.rack ~ ' neighbors', 'same rack · click to jump', '/rack/' ~ n.rack, 'Elevation') }}
+  <div class="floor-racks" style="grid-template-columns:repeat(16,minmax(0,1fr));gap:5px">
+    {% for nb in d.neighbors %}
+    <a class="rack-tile {{ 'crit' if nb.state == 'down' else ('warn' if nb.state == 'drain' else '') }}" href="/gpu-fleet/node/{{ nb.id }}" style="min-height:54px;padding:6px;{{ 'border-color:var(--teal)' if nb.self else '' }}">
+      <b style="font-size:10.5px">n{{ '%02d'|format(nb.slot) }}</b><span class="rk">{{ nb.util|num(0) }}%</span><span class="rk">{{ nb.temp|num(0) }}°</span></a>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C, col = {{ d.series_col }};
+  const [u, p, t] = await Promise.all([K.series("node_gpu_util", { col, minutes: 60 }), K.series("node_power_kw", { col, minutes: 60 }), K.series("node_temp_max_c", { col, minutes: 60 })]);
+  K.line("c-node", [{ name: "GPU util %", data: u, type: "areaspline", color: C.teal }, { name: "power kW", data: p, yAxis: 1, color: C.steel }, { name: "max °C", data: t, color: C.amber }],
+    { y2: "kW", decimals: 1, min: 0 });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set i = d.instance %}
+<div class="page-head">
+  <div><h1 class="row"><span class="mono">{{ i.id }}</span> {{ pill(i.state) }}</h1><p><b>{{ i.name }}</b> · {{ i.type }} · {{ i.gpus }} × {{ i.gpu }} · {{ i.az }} · project {{ i.project }}</p></div>
+  <div class="page-actions"><a class="btn" href="/cloud/aws">All instances</a></div>
+</div>
+<div class="g g-5">
+  <div class="panel tight">{{ kpi('GPU utilization', i.util, '%', 'DCGM via CloudWatch agent', size='s') }}</div>
+  <div class="panel tight">{{ kpi('HBM used', i.gpu_mem_pct, '%', i.gpu, size='s') }}</div>
+  <div class="panel tight">{{ kpi('Network', i.net_gbps, 'Gb/s', 'EFA 3,200 Gb/s', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Cost', d.krw_hr|krw, '/ h', '$' ~ i.usd_hr ~ '/h · ' ~ i.purchase, size='s') }}</div>
+  <div class="panel tight">{{ kpi('Uptime', d.uptime_s|dur, '', 'launched ' ~ (i.launch_t|kst), size='s') }}</div>
+</div>
+<div class="g g-2 mt">
+  <div class="panel">
+    {{ head('Instance') }}
+    <div class="kv">
+      <span>Instance ID</span><span class="mono">{{ i.id }}</span><span>Type</span><span class="mono">{{ i.type }}</span>
+      <span>GPUs</span><span>{{ i.gpus }} × {{ i.gpu }}</span><span>Availability zone</span><span>{{ i.az }}</span>
+      <span>Purchase option</span><span>{{ i.purchase }}</span><span>Project tag</span><span>{{ i.project }}</span>
+      <span>Scheduled end</span><span>{{ i.until|kst if i.until else '—' }}</span>
+      {% if i.burst_job %}<span>Burst job</span><span><a class="link" href="/gpu-fleet/job/{{ i.burst_job }}">#{{ i.burst_job }}</a></span>{% endif %}
+      <span>Accrued so far</span><span>{{ (d.krw_hr * d.uptime_s / 3600)|krw }}</span>
+    </div>
+  </div>
+  <div class="panel">
+    {{ head('Capacity Block', 'reservation this instance consumes') }}
+    {% if d.capacity_block %}{% set cb = d.capacity_block %}
+    <div class="kv"><span>Reservation</span><span class="mono">{{ cb.id }}</span><span>Size</span><span>{{ cb.count }} × {{ cb.type }}</span><span>Window</span><span>{{ cb.start|kst }} → {{ cb.end|kst }}</span><span>Status</span><span>{{ pill('ok' if cb.status == 'active' else 'info', cb.status) }}</span></div>
+    <div class="note mt">Capacity Blocks are prepaid: idle instances inside the block cost nothing extra, so the Grid scheduler prefers bursting here before on-demand.</div>
+    {% else %}<div class="empty">On-demand instance — billed per second at the on-demand rate.</div>{% endif %}
+  </div>
+</div>
+{% endblock %}

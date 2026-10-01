@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set s = d.summary %}
+<div class="page-head">
+  <div><h1>Kubernetes</h1><p>Dell PowerEdge XE9680 × 30 · 3 control-plane + 27 workers. Runs the platform around the GPUs: CubeFlow, inference gateway (HPA on req/s), observability, registry, RCS sessions, Slurm bridge.</p></div>
+  <div class="page-actions"><a class="btn" href="/platform/simulation?run=demand-surge">Simulate traffic surge</a></div>
+</div>
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('Nodes ready', s.ready, '/ ' ~ s.nodes, s.control_plane ~ ' CP · ' ~ s.workers ~ ' workers', live='k8s.ready', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Pods', s.pods_running, 'running', '<span data-live="k8s.pods_pending">' ~ s.pods_pending ~ '</span> pending · <span data-live="k8s.pods_crashloop">' ~ s.pods_crashloop ~ '</span> crashloop', live='k8s.pods_running', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('CPU', s.cpu_pct, '%', 'cluster average', live='k8s.cpu_pct', fmt='f1', spark='sp-cpu', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Memory', s.mem_pct, '%', 'cluster average', live='k8s.mem_pct', fmt='f1', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Gateway', s.rps|num(0), 'req/s', '<span data-live="k8s.gw_replicas">' ~ s.gw_replicas ~ '</span> replicas (HPA)', live='k8s.rps', fmt='int', spark='sp-rps', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Namespaces', s.namespaces, '', 'kubelet v1.34', size='s') }}</div>
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-7 flush">
+    {{ head('Hot nodes', 'by CPU · click for workloads') }}
+    <div class="table-wrap scroll"><table class="t" data-sortable><thead><tr><th>Node</th><th>Role</th><th>Rack</th><th>Status</th><th>CPU</th><th>Memory</th><th class="right">Pods</th></tr></thead><tbody>
+      {% for n in d.nodes %}<tr data-href="/kubernetes/node/{{ n.id }}" class="{{ 'crit' if n.status != 'Ready' else '' }}"><td class="mono">{{ n.id }}</td><td>{{ n.role }}</td><td>{{ n.rack }}</td><td>{{ pill(n.status) }}</td>
+        <td><div class="cell-bar">{{ bar(n.cpu_pct, warn=75, crit=90) }}<span class="xs muted">{{ n.cpu_pct }}%</span></div></td><td><div class="cell-bar">{{ bar(n.mem_pct, 'steel') }}<span class="xs muted">{{ n.mem_pct }}%</span></div></td><td class="right">{{ n.pods }}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+  <div class="panel s-5 flush">
+    {{ head('Namespaces', 'pods · CPU · memory') }}
+    <div class="table-wrap scroll"><table class="t" data-sortable><thead><tr><th>Namespace</th><th class="right">Pods</th><th class="right">CPU cores</th><th class="right">Mem GiB</th></tr></thead><tbody>
+      {% for n in d.namespaces %}<tr><td class="mono">{{ n.namespace }}</td><td class="right">{{ n.running }}/{{ n.pods }}</td><td class="right">{{ (n.cpu_m / 1000)|num(1) }}</td><td class="right">{{ (n.mem_mi / 1024)|num(0) }}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+</div>
+<div class="g g-2 mt">
+  <div class="panel">{{ head('Cluster CPU · memory · req/s', '60 min') }}<div class="chart m" id="c-k8s"></div></div>
+  <div class="panel">
+    {{ head('Problem pods & events') }}
+    {% for p in d.problem_pods %}<div class="stat-line"><span class="mono small">{{ p.namespace }}/{{ p.name }}</span><span>{{ pill(p.status) }} <span class="xs muted">restarts {{ p.restarts }}</span></span></div>{% else %}<div class="small muted mb">No problem pods.</div>{% endfor %}
+    <div class="timeline mt">{% for e in d.events %}<div class="tl-item"><span class="tl-t">{{ e.t|kst }}</span>{{ e.text }}</div>{% endfor %}</div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C;
+  const scpu = K.spark("sp-cpu", await K.series("k8s_cpu_pct", { minutes: 30 }), { color: C.teal });
+  const srps = K.spark("sp-rps", await K.series("k8s_rps", { minutes: 30 }), { color: C.violet });
+  const [c, m, r] = await Promise.all(["k8s_cpu_pct", "k8s_mem_pct", "k8s_rps"].map((x) => K.series(x, { minutes: 60 })));
+  const ch = K.line("c-k8s", [{ name: "CPU %", data: c }, { name: "memory %", data: m, color: C.steel }, { name: "req/s", data: r, yAxis: 1, color: C.violet }], { y2: "req/s", min: 0, max: 100, decimals: 1 });
+  Grid.onLive((L) => { const ms = L.ts * 1000; K.push(scpu, 0, ms, L.k8s.cpu_pct); K.push(srps, 0, ms, L.k8s.rps); K.push(ch, 0, ms, L.k8s.cpu_pct); K.push(ch, 1, ms, L.k8s.mem_pct); K.push(ch, 2, ms, L.k8s.rps); });
+})();
+</script>
+{% endblock %}

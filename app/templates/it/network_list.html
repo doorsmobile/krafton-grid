@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import bar, pill, head %}
+{% block content %}
+<div class="page-head"><div><h1>{{ title }}</h1><p>{{ {'uplinks': 'Every leaf uplink toward the spines, busiest first.', 'toptalkers': 'Switches ranked by total traffic.', 'inventory': 'Every Arista and NVIDIA switch in M1 — select one for its interfaces.'}[view] }}</p></div>
+  <div class="page-actions"><a class="btn" href="/network">← Network</a><input class="input" data-filter="t-net" placeholder="filter…"><button class="btn" data-export="t-net" data-name="network-{{ view }}">Export CSV</button></div></div>
+<div class="tabs"><a href="/network/uplinks" class="{{ 'on' if view == 'uplinks' else '' }}">Uplinks</a><a href="/network/toptalkers" class="{{ 'on' if view == 'toptalkers' else '' }}">Top talkers</a><a href="/network/inventory" class="{{ 'on' if view == 'inventory' else '' }}">Inventory</a></div>
+<div class="panel flush"><div class="table-wrap"><table class="t" id="t-net" data-sortable>
+{% if view == 'uplinks' %}
+  <thead><tr><th>Leaf</th><th>Fabric</th><th>Rack</th><th class="right">Uplinks</th><th class="right">Capacity Gb/s</th><th class="right">In Gb/s</th><th class="right">Out Gb/s</th><th>Utilization</th><th>Status</th></tr></thead><tbody>
+  {% for u in d.uplinks %}<tr data-href="/network/device/{{ u.device }}"><td class="mono">{{ u.device }}</td><td>{{ u.fabric }}</td><td>{{ u.rack }}</td><td class="right">{{ u.uplinks }}</td><td class="right">{{ '{:,}'.format(u.capacity_gbps) }}</td><td class="right">{{ u.in_gbps|num(0) }}</td><td class="right">{{ u.out_gbps|num(0) }}</td><td><div class="cell-bar">{{ bar(u.util_pct) }}<span class="xs muted">{{ u.util_pct }}%</span></div></td><td>{{ pill(u.status) }}</td></tr>{% endfor %}
+{% elif view == 'toptalkers' %}
+  <thead><tr><th>#</th><th>Device</th><th>Fabric</th><th>Tier</th><th class="right">In Gb/s</th><th class="right">Out Gb/s</th><th class="right">Errors</th><th class="right">Discards</th><th>Util</th></tr></thead><tbody>
+  {% for t in d.devices|sort(attribute='in_gbps', reverse=True) %}<tr data-href="/network/device/{{ t.id }}"><td class="muted">{{ loop.index }}</td><td class="mono">{{ t.id }}</td><td>{{ t.fabric }}</td><td>{{ t.tier }}</td><td class="right">{{ t.in_gbps|num(0) }}</td><td class="right">{{ t.out_gbps|num(0) }}</td><td class="right">{{ '{:,}'.format(t.errors) }}</td><td class="right">{{ '{:,}'.format(t.discards) }}</td><td><div class="cell-bar">{{ bar(t.util_pct) }}</div></td></tr>{% endfor %}
+{% else %}
+  <thead><tr><th>Device</th><th>Vendor</th><th>Model</th><th>Fabric</th><th>Tier</th><th>Rack</th><th class="right">Ports</th><th class="right">Speed</th><th class="right">Uptime</th><th class="right">CPU %</th><th class="right">Temp °C</th><th>Status</th></tr></thead><tbody>
+  {% for t in d.devices %}<tr data-href="/network/device/{{ t.id }}"><td class="mono">{{ t.id }}</td><td>{{ t.vendor }}</td><td>{{ t.model }}</td><td>{{ t.fabric }}</td><td>{{ t.tier }}{% if t.role %} · {{ t.role }}{% endif %}</td><td>{{ t.rack }}</td><td class="right">{{ t.ports }}</td><td class="right">{{ t.speed_g }}G</td><td class="right">{{ t.uptime_d }} d</td><td class="right">{{ t.cpu_pct }}</td><td class="right">{{ t.temp_c }}</td><td>{{ pill(t.status) }}</td></tr>{% endfor %}
+{% endif %}
+</tbody></table></div></div>
+{% endblock %}

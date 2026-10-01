@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import head, sev %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Alert Config</h1><p>{{ d.rules|length }} rules across {{ d.categories|length }} categories. Edit a threshold, the evaluation window (ticks × 2 s) or severity and press Save — the change applies on the next tick. Disable a rule to silence it without deleting it.</p></div>
+  <div class="page-actions"><a class="btn" href="/alerts/integrations">Slack / Webhooks</a><a class="btn" href="/alerts">Alerts</a></div>
+</div>
+<div class="panel flush">
+  <div class="table-tools" style="padding:14px 16px 10px"><input class="input" style="max-width:320px" placeholder="Filter rules…" data-filter="#t-rules">
+    <div class="seg" id="cat"><button class="on" data-c="">All</button>{% for c in d.categories %}<button data-c="{{ c }}">{{ c }}</button>{% endfor %}</div></div>
+  <div class="table-wrap"><table class="t" id="t-rules"><thead><tr><th style="width:36px">On</th><th>Rule</th><th>Category</th><th>Metric</th><th>Condition</th><th style="width:110px">Threshold</th><th style="width:90px">For (ticks)</th><th style="width:120px">Severity</th><th></th></tr></thead><tbody>
+    {% for r in d.rules %}<tr data-cat="{{ r.category }}" data-rule="{{ r.id }}">
+      <td><button class="switch {{ 'on' if r.enabled else '' }}" data-k="enabled" aria-label="enable {{ r.name }}"></button></td>
+      <td><b class="small">{{ r.name }}</b><div class="xs mono muted">{{ r.id }}</div>{% if r.description %}<div class="xs muted">{{ r.description }}</div>{% endif %}</td>
+      <td><span class="tag">{{ r.category }}</span></td><td class="mono xs">{{ r.metric }}</td><td class="mono">{{ r.op }}</td>
+      <td><input class="input mono" data-k="threshold" type="number" step="any" value="{{ r.threshold }}" style="width:100px"></td>
+      <td><input class="input mono" data-k="for_ticks" type="number" min="1" value="{{ r.for_ticks }}" style="width:70px"><div class="xs faint">{{ r.for_ticks * 2 }} s</div></td>
+      <td><select class="input" data-k="severity">{% for s in ['critical', 'warning', 'info'] %}<option {{ 'selected' if s == r.severity else '' }}>{{ s }}</option>{% endfor %}</select></td>
+      <td><button class="btn sm" data-save>Save</button></td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+<div class="panel mt">
+  {{ head('Routing', 'JSON · first match per target wins · applied immediately') }}
+  <textarea class="input mono" id="routes" rows="12" spellcheck="false" style="width:100%">{{ d.routes|tojson(indent=2) }}</textarea>
+  <div class="row between mt-s"><span class="xs muted">Targets: <code>slack:#channel</code> · <code>webhook</code> · <code>pagerduty</code>. Categories accept <code>*</code> and <code>facility.*</code> wildcards.</span><button class="btn teal" id="save-routes">Save routing</button></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  document.querySelectorAll("#cat button").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll("#cat button").forEach((x) => x.classList.toggle("on", x === b));
+    document.querySelectorAll("#t-rules tbody tr").forEach((tr) => tr.classList.toggle("hide", !!b.dataset.c && tr.dataset.cat !== b.dataset.c));
+  }));
+  async function save(tr, body) {
+    try { const r = await Grid.postJSON("/api/alerts/config/rule/" + tr.dataset.rule, body); Grid.toast("ok", "Rule saved", `${r.name} · ${r.op} ${r.threshold} for ${r.for_ticks} ticks · ${r.severity}${r.enabled ? "" : " · disabled"}`); }
+    catch (e) { Grid.toast("critical", "Save failed", e.message); }
+  }
+  document.querySelectorAll("#t-rules [data-save]").forEach((b) => b.addEventListener("click", () => {
+    const tr = b.closest("tr"), v = (k) => tr.querySelector(`[data-k="${k}"]`).value;
+    save(tr, { threshold: +v("threshold"), for_ticks: +v("for_ticks"), severity: v("severity") });
+  }));
+  document.querySelectorAll('#t-rules [data-k="enabled"]').forEach((b) => b.addEventListener("click", () => { const on = b.classList.toggle("on"); save(b.closest("tr"), { enabled: on }); }));
+  document.getElementById("save-routes").addEventListener("click", async () => {
+    let routes; try { routes = JSON.parse(document.getElementById("routes").value); } catch (e) { Grid.toast("critical", "Invalid JSON", e.message); return; }
+    try { await Grid.postJSON("/api/alerts/config/routes", { routes }); Grid.toast("ok", "Routing saved", routes.length + " routes"); } catch (e) { Grid.toast("critical", "Save failed", e.message); }
+  });
+})();
+</script>
+{% endblock %}

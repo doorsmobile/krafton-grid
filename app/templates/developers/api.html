@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, head, icon %}
+{% block content %}
+<div class="page-head">
+  <div><h1>API Catalog</h1><p>Every operator page renders from a view model that is also served as JSON — the page and its API always agree. Below: page → API pairs, then every endpoint with a live <b>Try it</b>. Machine-readable list at <a class="link mono" href="/api/catalog">GET /api/catalog</a>; OpenAPI at <a class="link mono" href="/docs">/docs</a>.</p></div>
+  <div class="page-actions"><a class="btn" href="/docs">OpenAPI · Swagger</a><a class="btn" href="/openapi.json">openapi.json</a></div>
+</div>
+<div class="g g-4">
+  <div class="panel tight">{{ kpi('Pages', '<span id="n-pages">…</span>'|safe, '', 'menu + detail pages', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Endpoints', '<span id="n-apis">…</span>'|safe, '', 'under /api/*', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Streaming', 'SSE', '', '/api/stream · /api/observability/agent/stream', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Auth', 'session' if AUTH_ENABLED else 'open', '', 'AUTH_ENABLED=' ~ ('1' if AUTH_ENABLED else '0'), size='s') }}</div>
+</div>
+<div class="panel mt">
+  {{ head('Quick start') }}
+  <pre class="code"><span class="b"># live snapshot (same payload the SSE stream pushes every 2 s)</span>
+curl -s http://127.0.0.1:{{ PORT }}/api/live | jq '.site'
+
+<span class="b"># PromQL-style query</span>
+curl -s -XPOST http://127.0.0.1:{{ PORT }}/api/observability/metrics/query -H 'content-type: application/json' \
+  -d '{"query":"topk(5, rack_temp_max_c)","window_minutes":15}'
+
+<span class="b"># start a failure scenario, then watch alerts correlate into an incident</span>
+curl -s -XPOST http://127.0.0.1:{{ PORT }}/api/sim/scenario/cdu-failure/start
+curl -s http://127.0.0.1:{{ PORT }}/api/incidents | jq '.incidents[0]'
+
+<span class="b"># submit a GPU job</span>
+curl -s -XPOST http://127.0.0.1:{{ PORT }}/api/gpu-platform/jobs -H 'content-type: application/json' \
+  -d '{"project":"pubg-ally","profile":"finetune","size":8}'</pre>
+</div>
+<div class="panel mt flush" data-tab-scope>
+  <div class="tabs" data-tabs="view" data-default="pages" style="padding:0 16px"><button data-tab="pages">Page ↔ API</button><button data-tab="apis">Endpoints</button></div>
+  <div data-panel="pages" data-group="view">
+    <div class="table-tools" style="padding:0 16px 10px"><input class="input" placeholder="Filter pages…" data-filter="#t-pages"></div>
+    <div class="table-wrap"><table class="t" id="t-pages"><thead><tr><th>Group</th><th>Page</th><th>Path</th><th>JSON API</th></tr></thead><tbody></tbody></table></div>
+  </div>
+  <div data-panel="apis" data-group="view">
+    <div class="table-tools" style="padding:0 16px 10px"><input class="input" placeholder="Filter endpoints… (path, tag, summary)" data-filter="#t-apis"></div>
+    <div class="table-wrap"><table class="t" id="t-apis"><thead><tr><th style="width:80px">Method</th><th>Path</th><th>Tag</th><th>Summary</th><th style="width:70px"></th></tr></thead><tbody></tbody></table></div>
+  </div>
+</div>
+<div class="overlay" id="try"><div class="modal" style="width:min(860px,94vw)">
+  <div class="row between mb"><h3 style="margin:0" class="mono" id="try-t"></h3><div class="row" style="gap:6px"><span class="xs muted mono" id="try-meta"></span><button class="btn sm" id="try-x">Close</button></div></div>
+  <pre class="code" id="try-b" style="max-height:62vh"></pre>
+</div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const $ = (id) => document.getElementById(id);
+  const c = await Grid.getJSON("/api/catalog");
+  $("n-pages").textContent = c.pages.length; $("n-apis").textContent = c.apis.length;
+  const link = (p) => p.includes("{") ? `<span class="mono small">${Grid.esc(p)}</span>` : `<a class="link mono small" href="${p}">${Grid.esc(p)}</a>`;
+  $("t-pages").querySelector("tbody").innerHTML = c.pages.map((p) => `<tr><td class="small muted">${Grid.esc(p.group)}</td><td><b class="small">${Grid.esc(p.title)}</b></td><td>${link(p.href)}</td>
+    <td>${(p.api || []).map((a) => a.includes("{") ? `<span class="tag">${Grid.esc(a)}</span>` : `<button class="tag" data-try="${a}">${Grid.esc(a)}</button>`).join(" ")}</td></tr>`).join("");
+  const M = { GET: "ok", POST: "info", PUT: "warn", DELETE: "crit" };
+  $("t-apis").querySelector("tbody").innerHTML = c.apis.map((a) => `<tr><td>${a.methods.map((m) => `<span class="pill ${M[m] || "idle"}">${m}</span>`).join(" ")}</td><td class="mono small">${Grid.esc(a.path)}</td>
+    <td>${(a.tags || []).map((t) => `<span class="tag">${Grid.esc(t)}</span>`).join(" ")}</td><td class="small muted">${Grid.esc(a.summary || "")}</td>
+    <td>${a.methods.includes("GET") && !a.path.includes("{") && !a.path.includes("stream") ? `<button class="btn sm" data-try="${a.path}">Try</button>` : ""}</td></tr>`).join("");
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-try]"); if (!b) return;
+    const url = b.dataset.try; $("try-t").textContent = "GET " + url; $("try-b").textContent = "…"; $("try").classList.add("on");
+    const t0 = performance.now();
+    try { const r = await fetch(url, { headers: { Accept: "application/json" } }); const txt = await r.text(); let body = txt; try { body = JSON.stringify(JSON.parse(txt), null, 2); } catch (x) { }
+      $("try-meta").textContent = `${r.status} · ${(txt.length / 1024).toFixed(1)} KB · ${Math.round(performance.now() - t0)} ms`; $("try-b").textContent = body.length > 60000 ? body.slice(0, 60000) + "\n… (truncated)" : body; }
+    catch (x) { $("try-b").textContent = String(x); }
+  });
+  $("try-x").addEventListener("click", () => $("try").classList.remove("on"));
+  $("try").addEventListener("click", (e) => { if (e.target.id === "try") $("try").classList.remove("on"); });
+})();
+</script>
+{% endblock %}

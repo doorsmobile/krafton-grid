@@ -1,126 +1,89 @@
-from __future__ import annotations
-
-import json
-
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.sim import engine
-from app.web.deps import page_ctx, templates
+from ..data import need, rm
+from ..templating import render
 
-router = APIRouter(tags=["facility"])
-
-
-@router.get("/facility", response_class=HTMLResponse)
-async def facility_overview(request: Request):
-    data = engine.get_facility_overview()
-    return templates.TemplateResponse(
-        request,
-        "facility.html",
-        page_ctx(
-            "facility-overview",
-            power=data["power"],
-            cooling=data["cooling"],
-            halls=data["halls"],
-            modules=data["modules"],
-            power_talkers=data["power_talkers"],
-            cooling_talkers=data["cooling_talkers"],
-            hall_talkers=data["hall_talkers"],
-            fac_live=data["live"],
-        ),
-    )
+router = APIRouter()
 
 
-@router.get("/power", response_class=HTMLResponse)
-async def power_page(request: Request):
-    data = engine.get_facility_overview()
-    return templates.TemplateResponse(
-        request,
-        "power.html",
-        page_ctx(
-            "power",
-            chain=data["power"],
-            fac_live=data["live"],
-        ),
-    )
+@router.get("/facility", include_in_schema=False)
+def page_overview(request: Request):
+    return render(request, "facility/overview.html", "Facility", rm.view("facility"))
 
 
-@router.get("/cooling", response_class=HTMLResponse)
-async def cooling_page(request: Request):
-    data = engine.get_facility_overview()
-    return templates.TemplateResponse(
-        request,
-        "cooling.html",
-        page_ctx(
-            "cooling",
-            chain=data["cooling"],
-            fac_live=data["live"],
-        ),
-    )
+@router.get("/api/facility", tags=["facility"], summary="Facility overview: site, halls, power & cooling stages, energy flow")
+def api_overview():
+    return rm.view("facility")
 
 
-@router.get("/capacity", response_class=HTMLResponse)
-async def capacity_page(request: Request):
-    data = engine.get_facility_overview()
-    return templates.TemplateResponse(
-        request,
-        "capacity.html",
-        page_ctx(
-            "capacity",
-            halls=data["halls"],
-            modules=data["modules"],
-            fac_live=data["live"],
-        ),
-    )
+@router.get("/facility/power", include_in_schema=False)
+def page_power(request: Request):
+    return render(request, "facility/power.html", "Power", rm.view("power"))
 
 
-@router.get("/facility/power/stage/{stage_id}", response_class=HTMLResponse)
-async def power_stage_page(request: Request, stage_id: str):
-    detail = engine.get_power_stage_detail(stage_id)
-    if not detail:
-        return RedirectResponse(url="/facility", status_code=302)
-    return templates.TemplateResponse(
-        request,
-        "facility_power_stage.html",
-        page_ctx(
-            "power",
-            stage=detail["stage"],
-            chain=detail["chain"],
-            series_json=json.dumps(detail["series"]),
-        ),
-    )
+@router.get("/api/facility/power", tags=["facility"], summary="2N power chain: utility, TX, UPS A/B, busways, gensets")
+def api_power():
+    return rm.view("power")
 
 
-@router.get("/facility/cooling/stage/{stage_id}", response_class=HTMLResponse)
-async def cooling_stage_page(request: Request, stage_id: str):
-    detail = engine.get_cooling_stage_detail(stage_id)
-    if not detail:
-        return RedirectResponse(url="/facility", status_code=302)
-    return templates.TemplateResponse(
-        request,
-        "facility_cooling_stage.html",
-        page_ctx(
-            "cooling",
-            stage=detail["stage"],
-            chain=detail["chain"],
-            series_json=json.dumps(detail["series"]),
-        ),
-    )
+@router.get("/facility/power/{device_id}", include_in_schema=False)
+def page_power_device(request: Request, device_id: str):
+    d = need(rm.entity("power_device", device_id), "power device")
+    return render(request, "facility/power_device.html", d["device"]["id"], d)
 
 
-@router.get("/facility/hall/{hall_id}", response_class=HTMLResponse)
-async def hall_page(request: Request, hall_id: str):
-    detail = engine.get_hall_detail(hall_id)
-    if not detail:
-        return RedirectResponse(url="/facility", status_code=302)
-    return templates.TemplateResponse(
-        request,
-        "facility_hall.html",
-        page_ctx(
-            "capacity",
-            hall=detail["hall"],
-            halls=detail["halls"],
-            modules=detail["modules"],
-            series_json=json.dumps(detail["series"]),
-        ),
-    )
+@router.get("/api/facility/power/{device_id}", tags=["facility"], summary="One power device with parent/children and peer path")
+def api_power_device(device_id: str):
+    return need(rm.entity("power_device", device_id), "power device")
+
+
+@router.get("/facility/cooling", include_in_schema=False)
+def page_cooling(request: Request):
+    return render(request, "facility/cooling.html", "Cooling", rm.view("cooling"))
+
+
+@router.get("/api/facility/cooling", tags=["facility"], summary="Liquid-first cooling: rows, CDUs, chillers, towers, CRAHs")
+def api_cooling():
+    return rm.view("cooling")
+
+
+@router.get("/facility/cooling/{device_id}", include_in_schema=False)
+def page_cooling_device(request: Request, device_id: str):
+    d = need(rm.entity("cooling_device", device_id), "cooling device")
+    return render(request, "facility/cooling_device.html", d["device"]["id"], d)
+
+
+@router.get("/api/facility/cooling/{device_id}", tags=["facility"], summary="One cooling device (CDU, chiller, tower, CRAH)")
+def api_cooling_device(device_id: str):
+    return need(rm.entity("cooling_device", device_id), "cooling device")
+
+
+@router.get("/facility/capacity", include_in_schema=False)
+def page_capacity(request: Request):
+    return render(request, "facility/capacity.html", "Capacity", rm.view("capacity"))
+
+
+@router.get("/api/facility/capacity", tags=["facility"], summary="M1–M5 build-out, hall headroom, expansion planner")
+def api_capacity():
+    return rm.view("capacity")
+
+
+@router.get("/facility/hall/{hall_id}", include_in_schema=False)
+def page_hall(request: Request, hall_id: str):
+    d = need(rm.entity("hall", hall_id.upper()), "hall")
+    return render(request, "facility/hall.html", d["hall"]["name"], d)
+
+
+@router.get("/api/facility/hall/{hall_id}", tags=["facility"], summary="One data hall: rows, racks, CRAHs, UPS")
+def api_hall(hall_id: str):
+    return need(rm.entity("hall", hall_id.upper()), "hall")
+
+
+@router.get("/facility/energy", include_in_schema=False)
+def page_energy(request: Request):
+    return render(request, "facility/energy.html", "Energy & ESG", rm.view("energy"))
+
+
+@router.get("/api/facility/energy", tags=["facility"], summary="PUE · WUE · CUE, energy flow sankey, carbon, TOU")
+def api_energy():
+    return rm.view("energy")

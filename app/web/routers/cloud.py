@@ -1,143 +1,90 @@
-from __future__ import annotations
-
-import json
-
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.sim import engine
-from app.web.deps import page_ctx, templates
+from ..data import need, rm
+from ..templating import render
 
-router = APIRouter(tags=["cloud"])
-
-
-@router.get("/cloud", response_class=HTMLResponse)
-async def cloud_overview(request: Request):
-    data = engine.get_cloud_overview()
-    return templates.TemplateResponse(
-        request,
-        "cloud.html",
-        page_ctx(
-            "cloud-overview",
-            aws=data["aws"],
-            gcp=data["gcp"],
-            nhn=data["nhn"],
-            aws_talkers=data["aws_talkers"],
-            nhn_talkers=data["nhn_talkers"],
-            gcp_talkers=data["gcp_talkers"],
-            cloud_live=data["live"],
-        ),
-    )
+router = APIRouter()
 
 
-@router.get("/cloud/aws", response_class=HTMLResponse)
-async def cloud_aws(request: Request):
-    data = engine.get_cloud_overview()
-    return templates.TemplateResponse(
-        request,
-        "cloud_aws.html",
-        page_ctx(
-            "cloud-aws",
-            provider=data["aws"],
-            talkers=data["aws_talkers"],
-            cloud_live=data["live"],
-        ),
-    )
+@router.get("/cloud", include_in_schema=False)
+def page_cloud(request: Request):
+    return render(request, "cloud/overview.html", "Cloud", rm.view("cloud"))
 
 
-@router.get("/cloud/gcp", response_class=HTMLResponse)
-async def cloud_gcp(request: Request):
-    data = engine.get_cloud_overview()
-    return templates.TemplateResponse(
-        request,
-        "cloud_gcp.html",
-        page_ctx(
-            "cloud-gcp",
-            provider=data["gcp"],
-            talkers=data["gcp_talkers"],
-            cloud_live=data["live"],
-        ),
-    )
+@router.get("/api/cloud", tags=["cloud"], summary="Cloud overview in fixed order AWS → GCP → NHN with top talkers and bursts")
+def api_cloud():
+    return rm.view("cloud")
 
 
-@router.get("/cloud/nhn", response_class=HTMLResponse)
-async def cloud_nhn(request: Request):
-    data = engine.get_cloud_overview()
-    return templates.TemplateResponse(
-        request,
-        "cloud_nhn.html",
-        page_ctx(
-            "cloud-nhn",
-            provider=data["nhn"],
-            talkers=data["nhn_talkers"],
-            cloud_live=data["live"],
-        ),
-    )
+@router.get("/cloud/aws", include_in_schema=False)
+def page_aws(request: Request):
+    return render(request, "cloud/aws.html", "AWS GPUaaS", rm.view("cloud_aws"))
 
 
-@router.get("/cloud/aws/instance/{instance_id}", response_class=HTMLResponse)
-async def aws_instance_page(request: Request, instance_id: str):
-    detail = engine.get_aws_instance_detail(instance_id)
-    if not detail:
-        return RedirectResponse(url="/cloud/aws", status_code=302)
-    return templates.TemplateResponse(
-        request,
-        "cloud_aws_instance.html",
-        page_ctx(
-            "cloud-aws",
-            instance=detail["instance"],
-            provider=detail["provider"],
-            series_json=json.dumps(detail["series"]),
-        ),
-    )
+@router.get("/api/cloud/aws", tags=["cloud"], summary="AWS: EC2 instances, Capacity Blocks, burst jobs")
+def api_aws():
+    return rm.view("cloud_aws")
 
 
-@router.get("/cloud/nhn/instance/{instance_id}", response_class=HTMLResponse)
-async def nhn_instance_page(request: Request, instance_id: str):
-    detail = engine.get_nhn_instance_detail(instance_id)
-    if not detail:
-        return RedirectResponse(url="/cloud/nhn", status_code=302)
-    return templates.TemplateResponse(
-        request,
-        "cloud_nhn_instance.html",
-        page_ctx(
-            "cloud-nhn",
-            instance=detail["instance"],
-            provider=detail["provider"],
-            series_json=json.dumps(detail["series"]),
-        ),
-    )
+@router.get("/cloud/aws/instance/{instance_id}", include_in_schema=False)
+def page_aws_instance(request: Request, instance_id: str):
+    d = need(rm.entity("aws_instance", instance_id), "instance")
+    return render(request, "cloud/aws_instance.html", instance_id, d)
 
 
-@router.get("/cloud/gcp/bucket/{bucket_id}", response_class=HTMLResponse)
-async def gcp_bucket_page(request: Request, bucket_id: str):
-    detail = engine.get_gcp_bucket_detail(bucket_id)
-    if not detail:
-        return RedirectResponse(url="/cloud/gcp", status_code=302)
-    return templates.TemplateResponse(
-        request,
-        "cloud_gcp_bucket.html",
-        page_ctx(
-            "cloud-gcp",
-            bucket=detail["bucket"],
-            provider=detail["provider"],
-            series_json=json.dumps(detail["series"]),
-        ),
-    )
+@router.get("/api/cloud/aws/instance/{instance_id}", tags=["cloud"], summary="One EC2 instance")
+def api_aws_instance(instance_id: str):
+    return need(rm.entity("aws_instance", instance_id), "instance")
 
 
-@router.get("/cloud/gcp/disk/{disk_id}", response_class=HTMLResponse)
-async def gcp_disk_page(request: Request, disk_id: str):
-    detail = engine.get_gcp_disk_detail(disk_id)
-    if not detail:
-        return RedirectResponse(url="/cloud/gcp", status_code=302)
-    return templates.TemplateResponse(
-        request,
-        "cloud_gcp_disk.html",
-        page_ctx(
-            "cloud-gcp",
-            disk=detail["disk"],
-            provider=detail["provider"],
-            series_json=json.dumps(detail["series"]),
-        ),
-    )
+@router.get("/cloud/gcp", include_in_schema=False)
+def page_gcp(request: Request):
+    return render(request, "cloud/gcp.html", "GCP Storage", rm.view("cloud_gcp"))
+
+
+@router.get("/api/cloud/gcp", tags=["cloud"], summary="GCP: GCS buckets, Persistent Disks, transfer jobs")
+def api_gcp():
+    return rm.view("cloud_gcp")
+
+
+@router.get("/cloud/gcp/bucket/{bucket}", include_in_schema=False)
+def page_bucket(request: Request, bucket: str):
+    d = need(rm.entity("gcp_bucket", bucket), "bucket")
+    return render(request, "cloud/gcp_bucket.html", bucket, d)
+
+
+@router.get("/api/cloud/gcp/bucket/{bucket}", tags=["cloud"], summary="One GCS bucket")
+def api_bucket(bucket: str):
+    return need(rm.entity("gcp_bucket", bucket), "bucket")
+
+
+@router.get("/cloud/gcp/disk/{disk_id}", include_in_schema=False)
+def page_disk(request: Request, disk_id: str):
+    d = need(rm.entity("gcp_disk", disk_id), "disk")
+    return render(request, "cloud/gcp_disk.html", disk_id, d)
+
+
+@router.get("/api/cloud/gcp/disk/{disk_id}", tags=["cloud"], summary="One Persistent Disk")
+def api_disk(disk_id: str):
+    return need(rm.entity("gcp_disk", disk_id), "disk")
+
+
+@router.get("/cloud/nhn", include_in_schema=False)
+def page_nhn(request: Request):
+    return render(request, "cloud/nhn.html", "NHN GPUaaS", rm.view("cloud_nhn"))
+
+
+@router.get("/api/cloud/nhn", tags=["cloud"], summary="NHN Cloud GPU instances")
+def api_nhn():
+    return rm.view("cloud_nhn")
+
+
+@router.get("/cloud/nhn/instance/{instance_id}", include_in_schema=False)
+def page_nhn_instance(request: Request, instance_id: str):
+    d = need(rm.entity("nhn_instance", instance_id), "instance")
+    return render(request, "cloud/nhn_instance.html", instance_id, d)
+
+
+@router.get("/api/cloud/nhn/instance/{instance_id}", tags=["cloud"], summary="One NHN GPU instance")
+def api_nhn_instance(instance_id: str):
+    return need(rm.entity("nhn_instance", instance_id), "instance")

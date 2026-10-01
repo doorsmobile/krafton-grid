@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set m1 = d.m1 %}{% set p = d.planner %}
+<div class="page-head">
+  <div><h1>Capacity</h1><p>5 × 20 MW modules = 100 MW campus. M1 is live with {{ '{:,}'.format(d.fleet.gpus) }} B300 — physically that is ~{{ m1.gpu_peak_mw }} MW at full TDP, so M1 still has real headroom before M2 is needed.</p></div>
+</div>
+<div class="g g-5">
+  <div class="panel tight">{{ kpi('Campus envelope', d.campus_mw|num(0), 'MW', '5 modules × ' ~ (d.module_mw|num(0)) ~ ' MW', size='s') }}</div>
+  <div class="panel tight">{{ kpi('M1 critical IT', m1.it_mw|num(2), 'MW', 'of ' ~ (m1.design_mw|num(0)) ~ ' MW · ' ~ m1.util_pct ~ '%', live='site.it_mw', fmt='f2', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Fleet at full TDP', m1.gpu_peak_mw, 'MW', '5,000 × 1.1 kW + node base', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Addable in M1', p.addable_racks, 'racks', '= ' ~ '{:,}'.format(p.addable_gpus) ~ ' B300 · bound by ' ~ p.binding, size='s') }}</div>
+  <div class="panel tight">{{ kpi('GPU allocation', d.fleet.alloc_pct, '%', 'demand signal for next block', size='s') }}</div>
+</div>
+
+<div class="panel mt">
+  {{ head('Build-out timeline', 'design → construction → commissioning → live · dashed line = today') }}
+  <div class="chart m" id="c-build"></div>
+</div>
+
+<div class="g g-12 mt">
+  <div class="panel s-7 flush">
+    {{ head('M1 halls · power budget', 'design vs allocated (rack design kW) vs measured · stranded = allocated but unused') }}
+    <div class="table-wrap"><table class="t"><thead><tr><th>Hall</th><th>Purpose</th><th class="right">Design</th><th class="right">Allocated</th><th class="right">Measured</th><th class="right">Stranded</th><th style="width:26%">Measured / design</th></tr></thead><tbody>
+      {% for h in d.halls %}
+      <tr data-href="/facility/hall/{{ h.id }}"><td><b>{{ h.name }}</b></td><td class="small muted">{{ h.purpose }}</td><td class="right">{{ (h.design_kw/1000)|num(1) }} MW</td><td class="right">{{ (h.allocated_kw/1000)|num(2) }} MW</td>
+        <td class="right">{{ (h.used_kw/1000)|num(2) }} MW</td><td class="right muted">{{ (h.stranded_kw/1000)|num(2) }} MW</td>
+        <td><div class="cell-bar">{{ bar(h.util_pct) }}<span class="xs muted">{{ h.util_pct }}%</span></div></td></tr>
+      {% endfor %}
+    </tbody></table></div>
+  </div>
+  <div class="panel s-5">
+    {{ head('Expansion planner', 'what-if · recomputed in the browser') }}
+    <div class="form-grid">
+      <label>Target hall</label><select class="input" id="p-hall"><option value="HD">Hall D (reserved · 20 positions)</option><option value="HA">Hall A (densify)</option><option value="HB">Hall B (densify)</option></select>
+      <label>Racks to add</label><div class="row"><input type="range" id="p-racks" min="0" max="40" value="{{ p.space_limited_racks }}" class="grow"><b class="tnum" id="p-racks-v"></b></div>
+      <label>Nodes per rack</label><div class="row"><input type="range" id="p-nodes" min="4" max="18" value="16" class="grow"><b class="tnum" id="p-nodes-v"></b></div>
+      <label>GPU power profile</label><div class="row"><input type="range" id="p-tdp" min="1000" max="1400" step="50" value="1100" class="grow"><b class="tnum" id="p-tdp-v"></b></div>
+    </div>
+    <div class="split mt" id="p-out"></div>
+    <div class="note mt" id="p-verdict"></div>
+  </div>
+</div>
+
+<div class="section-title">Modules</div>
+<div class="g g-5">
+  {% for m in d.modules %}
+  <div class="panel tight {{ 'warn' if m.status == 'construction' else '' }}">
+    <div class="row between"><b class="mono">{{ m.id }} · Phase {{ m.phase }}</b>{{ pill('ok' if m.status == 'live' else ('warn' if m.status == 'construction' else 'idle'), m.status) }}</div>
+    <div class="kpi-value xs mt-s">{{ m.it_mw|num(0) }}<span class="unit">MW critical IT</span></div>
+    <div class="xs muted">ready-for-service {{ m.rfs }}</div>
+    {% if m.id == 'M1' %}<div class="mt-s">{{ bar(m1.util_pct, live='site.util_pct') }}</div>{% else %}<div class="mt-s">{{ bar(0, 'steel') }}</div>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const K = GridCharts, C = K.C, F = Grid.fmt;
+  const b = {{ d.buildout|tojson }};
+  const mods = ["M1", "M2", "M3", "M4", "M5"];
+  const colors = { Design: "#5b6472", Construction: "#fbbf24", Commissioning: "#38bdf8", Live: "#2dd4bf" };
+  const t = (s) => Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, 1);
+  K.xrange("c-build", mods, b.map(([m, ph, a, z]) => ({ x: t(a), x2: t(z), y: mods.indexOf(m), phase: ph, color: colors[ph] })));
+  const halls = Object.fromEntries({{ d.halls|tojson }}.map((h) => [h.id, h]));
+  const reserved = {{ d.planner.space_limited_racks }};
+  const $ = (id) => document.getElementById(id);
+  function calc() {
+    const hall = $("p-hall").value, racks = +$("p-racks").value, nodes = +$("p-nodes").value, tdp = +$("p-tdp").value;
+    $("p-racks-v").textContent = racks; $("p-nodes-v").textContent = nodes; $("p-tdp-v").textContent = tdp + " W";
+    const nodeKw = (8 * tdp) / 1000 + 2.35 + 0.3, rackKw = nodeKw * nodes + 2.2, addKw = rackKw * racks;
+    const h = halls[hall], after = h.used_kw + addKw, pct = (after / h.design_kw) * 100;
+    const cduOk = rackKw * 5 * 0.88 <= 1350;
+    const spaceOk = hall !== "HD" || racks <= reserved;
+    const m1After = {{ d.m1.it_mw }} + addKw / 1000;
+    $("p-out").innerHTML = [["Added GPUs", F.int(racks * nodes * 8)], ["Rack peak", F.f1(rackKw) + " kW"], ["Added IT", F.f2(addKw / 1000) + " MW"],
+      [h.name + " after", F.f2(after / 1000) + " / " + F.f1(h.design_kw / 1000) + " MW"], ["M1 after", F.f2(m1After) + " / 20 MW"], ["Row CDU load", F.int(rackKw * 5 * 0.88) + " / 1,350 kW"]]
+      .map(([k, v]) => `<div><div class="xs muted">${k}</div><div class="tnum" style="font-weight:650">${v}</div></div>`).join("");
+    const issues = [];
+    if (pct > 100) issues.push(`${h.name} power budget exceeded (${F.f1(pct)}%)`);
+    if (!cduOk) issues.push("a 5-rack row would exceed one 1.35 MW CDU — needs 2 CDUs per row");
+    if (!spaceOk) issues.push(`only ${reserved} positions in Hall D`);
+    if (hall !== "HD" && racks > 0) issues.push("densifying A/B needs new row positions — plan a hall re-layout");
+    const v = $("p-verdict");
+    v.className = "note mt " + (issues.length ? "warn" : "");
+    v.innerHTML = issues.length ? "<b>Constraints:</b> " + issues.join(" · ") : `<b>Fits.</b> ${F.int(racks * nodes * 8)} more B300 fit in ${h.name} at ${F.f1(pct)}% of hall budget; M1 would run at ${F.f1(m1After / 20 * 100)}%.`;
+  }
+  ["p-hall", "p-racks", "p-nodes", "p-tdp"].forEach((id) => $(id).addEventListener("input", calc));
+  calc();
+})();
+</script>
+{% endblock %}

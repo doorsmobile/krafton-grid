@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head, chead, icon %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Observability</h1><p>One telemetry plane for the facility and the AI cluster: a tiered in-memory TSDB (2 s → 60 s resolution, 24 h), structured logs from Slurm · DCGM · UFM · EOS · BMS · Scale, and a unified event stream. Query it with PromQL / LogQL, relay it to your SaaS, or ask Claude.</p></div>
+  <div class="page-actions"><a class="btn teal" href="/observability/mission-control">{{ icon('spark') }} Ask Mission Control</a></div>
+</div>
+<div class="g g-5">
+  <div class="panel tight">{{ kpi('Metrics', d.metrics, '', 'families in the catalog', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Active series', '{:,}'.format(d.series), '', 'incl. 5,000 per-GPU columns', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Log lines', '{:,}'.format(d.log_lines), '', d.log_services|length ~ ' services · ring buffer', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Events', d.events, '', 'alerts · scenarios · operator actions', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Pipeline tick', d.tick_ms|num(1), 'ms', 'tick #<span data-live="tick" data-fmt="int">' ~ d.tick ~ '</span> · every 2 s', live='tick_ms', fmt='f1', size='s') }}</div>
+</div>
+
+<div class="panel mt">
+  {{ head('Telemetry pipeline', 'sources → collection → storage → consumers') }}
+  <svg class="diagram" viewBox="0 0 1000 210" id="pipe">
+    {% set cols = [
+      (20, 'Sources', ['DCGM exporter · 5,000 GPUs', 'Slurm / CubeFlow', 'UFM · Arista EOS', 'IBM Storage Scale', 'BMS / EPMS · Modbus', 'AWS · GCP · NHN APIs']),
+      (290, 'Collection', ['Prometheus remote-write', 'OTLP collector', 'SNMP / gNMI poller', 'Modbus TCP gateway']),
+      (540, 'Grid store', ['TSDB · 4 tiers · 24 h', 'Log store · LogQL', 'Event bus · SSE', 'Redis mirror']),
+      (780, 'Consumers', ['Dashboards · alerts', 'Telemetry relay', 'Mission Control (Claude)', 'API · /api/*'])] %}
+    {% for x, title, items in cols %}
+      <text x="{{ x }}" y="16" fill="#8b8f98" font-size="11" font-weight="600" letter-spacing=".06em">{{ title|upper }}</text>
+      {% for it in items %}<rect x="{{ x }}" y="{{ 26 + loop.index0 * 30 }}" width="200" height="24" rx="6" fill="#121215" stroke="#26262c"/><text x="{{ x + 10 }}" y="{{ 42 + loop.index0 * 30 }}" fill="#d6d9df" font-size="11.5">{{ it }}</text>{% endfor %}
+    {% endfor %}
+    {% for x in [220, 490, 740] %}<path class="flow-line" d="M{{ x }} 100 H{{ x + 60 }}" stroke="#2dd4bf" stroke-width="2" fill="none"/><path d="M{{ x + 54 }} 95 l7 5 -7 5" stroke="#2dd4bf" stroke-width="2" fill="none"/>{% endfor %}
+  </svg>
+</div>
+
+<div class="g g-4 mt">
+  {% for s in d.solutions %}
+  <a class="panel" href="{{ s.href }}">{{ chead(s.title, None, 'Open') }}<div class="small muted">{{ s.desc }}</div></a>
+  {% endfor %}
+  <a class="panel" href="/developers/api">{{ chead('API Catalog', None, 'Open') }}<div class="small muted">Every page has a JSON twin — pull any of this into your own tooling.</div></a>
+</div>
+
+<div class="g g-12 mt">
+  <div class="panel s-7 flush">
+    {{ head('Metric catalog', 'first 12 · full list in Metrics', '/observability/metrics', 'All metrics') }}
+    <table class="t"><thead><tr><th>Metric</th><th>Labels</th><th class="right">Series</th><th>Resolution</th><th>Unit</th></tr></thead><tbody>
+      {% for m in d.catalog %}<tr data-href="/observability/metrics?q={{ m.name|urlencode }}"><td class="mono small"><b>{{ m.name }}</b><div class="xs muted" style="font-family:var(--sans)">{{ m.help }}</div></td><td class="xs mono muted">{{ m.labels|join(', ') or '—' }}</td><td class="right">{{ '{:,}'.format(m.series) }}</td><td class="small">{{ m.resolution_s }} s</td><td class="small muted">{{ m.unit }}</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+  <div class="panel s-5">
+    {{ head('Relay destinations', 'forwarding now', '/observability/telemetry-relay', 'Manage') }}
+    {% for r in d.relays %}
+    <div class="stat-line"><span><span class="dot {{ 'ok' if r.enabled else '' }}"></span> <b class="small">{{ r.name }}</b><div class="xs muted">{{ r.protocol }} · {{ r.signals|join(' · ') }}</div></span><span class="mono small">{{ '{:,}'.format(r.eps) ~ ' ev/s' if r.enabled else 'paused' }}</span></div>
+    {% endfor %}
+    <div class="section-title">Log services</div>
+    <div class="row wrap" style="gap:5px">{% for s in d.log_services %}<a class="tag" href="/observability/logs?q={{ ('{service="' ~ s ~ '"}')|urlencode }}">{{ s }}</a>{% endfor %}</div>
+  </div>
+</div>
+{% endblock %}

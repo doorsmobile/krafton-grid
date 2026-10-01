@@ -1,156 +1,151 @@
 #!/usr/bin/env bash
-# Mac launcher for Krafton Grid DCIM (Cursor port 8002).
-# Usage: ./run_mac.sh          # start / restart in background
-#        ./run_mac.sh stop     # stop only
-#        ./run_mac.sh status   # show pid / url / health
+# Krafton Grid · grid-claude launcher (Claude port 8003)
+#
+#   data path:  collector process ──▶ Redis (read models) ──▶ web process (pages · APIs · SSE)
+#
+#   ./run_mac.sh            start / restart both processes in the background
+#   ./run_mac.sh stop       stop both
+#   ./run_mac.sh status     pids · health · collector heartbeat
+#   ./run_mac.sh logs       follow both logs
+#   ./run_mac.sh web        restart only the web process (collector keeps running — no simulation reset)
+#
+# Without Redis the web process runs the collector in-process on an in-memory store (same read path).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
-PORT="${APP_PORT:-8002}"
+PORT="${APP_PORT:-8003}"
 HOST="${APP_HOST:-127.0.0.1}"
-LOG_DIR="${ROOT}/.run"
-LOG_FILE="${LOG_DIR}/uvicorn.log"
-PID_FILE="${LOG_DIR}/uvicorn.pid"
+PREFIX="${REDIS_PREFIX:-dcim:aidc100:claude}"
+RUN_DIR="$ROOT/.run"
+WEB_LOG="$RUN_DIR/uvicorn.log"
+WEB_PID="$RUN_DIR/uvicorn.pid"
+COL_LOG="$RUN_DIR/collector.log"
+COL_PID="$RUN_DIR/collector.pid"
 URL="http://${HOST}:${PORT}"
-VERSION="$(tr -d '[:space:]' < VERSION 2>/dev/null || echo unknown)"
-RELEASE="dcim-cursor-v${VERSION}"
+VERSION="$(tr -d '[:space:]' < VERSION 2>/dev/null || echo 0.0)"
+RELEASE="grid-claude-v${VERSION}"
+mkdir -p "$RUN_DIR"
 
-mkdir -p "$LOG_DIR"
+say() { printf '[grid-claude] %s\n' "$*"; }
 
-cmd="${1:-start}"
-
-stop_existing() {
-  local pids=""
-  if command -v lsof >/dev/null 2>&1; then
-    pids="$(lsof -tiTCP:"${PORT}" -sTCP:LISTEN 2>/dev/null || true)"
-  fi
-  if [[ -f "${PID_FILE}" ]]; then
-    local old
-    old="$(cat "${PID_FILE}" 2>/dev/null || true)"
-    if [[ -n "${old}" ]]; then
-      pids="${pids} ${old}"
-    fi
-  fi
-  if [[ -z "${pids}" ]] && command -v pgrep >/dev/null 2>&1; then
-    pids="$(pgrep -f "uvicorn app.main:app.*${PORT}" 2>/dev/null || true)"
-  fi
-  if [[ -n "${pids}" ]]; then
-    echo "[dcim] stopping: ${pids}"
+kill_pids() {  # kill_pids <label> <pid...>
+  local label="$1"; shift
+  local pids; pids="$(echo "$*" | xargs -n1 2>/dev/null | sort -u | xargs 2>/dev/null || true)"
+  [[ -z "${pids// /}" ]] && return 0
+  say "stopping $label pid(s): $pids"
+  # shellcheck disable=SC2086
+  kill $pids 2>/dev/null || true
+  for _ in $(seq 1 15); do
+    sleep 0.3
     # shellcheck disable=SC2086
-    kill ${pids} 2>/dev/null || true
-    sleep 1
-    # shellcheck disable=SC2086
-    kill -9 ${pids} 2>/dev/null || true
-  fi
-  rm -f "${PID_FILE}"
+    kill -0 $pids 2>/dev/null || return 0
+  done
+  # shellcheck disable=SC2086
+  kill -9 $pids 2>/dev/null || true
 }
+
+stop_web() {
+  local pids=""
+  if command -v lsof >/dev/null 2>&1; then pids="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)"; fi
+  [[ -f "$WEB_PID" ]] && pids="$pids $(cat "$WEB_PID" 2>/dev/null || true)"
+  kill_pids web $pids
+  rm -f "$WEB_PID"
+}
+
+stop_collector() {
+  local pids=""
+  [[ -f "$COL_PID" ]] && pids="$(cat "$COL_PID" 2>/dev/null || true)"
+  pids="$pids $(pgrep -f "python -m app.collector" 2>/dev/null | xargs 2>/dev/null || true)"
+  kill_pids collector $pids
+  rm -f "$COL_PID"
+}
+
+redis_ok() { command -v redis-cli >/dev/null 2>&1 && redis-cli ping >/dev/null 2>&1; }
 
 ensure_redis() {
-  if command -v redis-cli >/dev/null 2>&1; then
-    if redis-cli ping >/dev/null 2>&1; then
-      echo "[dcim] redis: ok"
+  if redis_ok; then say "redis: ok"; return 0; fi
+  if command -v redis-server >/dev/null 2>&1; then
+    say "starting redis-server (daemonized)"
+    redis-server --daemonize yes >/dev/null 2>&1 || true
+    sleep 0.5
+  elif command -v brew >/dev/null 2>&1; then
+    brew services start redis >/dev/null 2>&1 || true
+    sleep 1
+  fi
+  if redis_ok; then say "redis: ok"; return 0; fi
+  say "redis: not available — web will run the collector in-process on an in-memory store"
+  return 1
+}
+
+healthy() { curl -s "$URL/healthz" 2>/dev/null | grep -q '"ok":true'; }
+
+start_collector() {
+  export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" GRID_STORE=redis
+  nohup .venv/bin/python -m app.collector >>"$COL_LOG" 2>&1 &
+  echo $! >"$COL_PID"
+  local pid; pid="$(cat "$COL_PID")"
+  for _ in $(seq 1 60); do   # the collector takes the lease first, then boots the engine (~2 s)
+    if redis-cli --raw GET "$PREFIX:lease:collector" 2>/dev/null | grep -q ":$pid:"; then
+      say "collector pid $pid holds the lease"; return 0
+    fi
+    kill -0 "$pid" 2>/dev/null || { say "ERROR: collector exited — last log lines:"; tail -n 30 "$COL_LOG"; exit 1; }
+    sleep 0.25
+  done
+  say "WARNING: collector did not take the lease yet (a previous lease may still be expiring)"
+}
+
+start_web() {
+  export APP_PORT="$PORT" APP_HOST="$HOST" PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+  nohup .venv/bin/python -m uvicorn app.main:app --host "$HOST" --port "$PORT" --no-access-log >>"$WEB_LOG" 2>&1 &
+  echo $! >"$WEB_PID"
+  for _ in $(seq 1 80); do
+    if healthy; then
+      say "web pid $(cat "$WEB_PID") · data flowing"
       return 0
     fi
-    if command -v redis-server >/dev/null 2>&1; then
-      echo "[dcim] starting redis-server"
-      redis-server --daemonize yes
-      sleep 0.5
-      if redis-cli ping >/dev/null 2>&1; then
-        echo "[dcim] redis: started"
-        return 0
-      fi
-    fi
-    if command -v brew >/dev/null 2>&1; then
-      echo "[dcim] trying: brew services start redis"
-      brew services start redis >/dev/null 2>&1 || true
-      sleep 1
-      if redis-cli ping >/dev/null 2>&1; then
-        echo "[dcim] redis: brew service ok"
-        return 0
-      fi
-    fi
-  else
-    echo "[dcim] warn: redis-cli missing — install with: brew install redis"
-  fi
-  echo "[dcim] warn: Redis not reachable at 127.0.0.1:6379 (app may fail to start)"
+    sleep 0.25
+  done
+  say "ERROR: web did not become healthy — last log lines:"
+  tail -n 40 "$WEB_LOG" || true
+  exit 1
 }
 
-status() {
-  echo "[dcim] release=${RELEASE}  port=${PORT}"
-  if [[ -f "${PID_FILE}" ]]; then
-    echo "[dcim] pid=$(cat "${PID_FILE}")"
-  else
-    echo "[dcim] pid=(none)"
-  fi
-  if curl -sf -o /dev/null "${URL}/api/live" 2>/dev/null; then
-    echo "[dcim] health=ok  url=${URL}"
-  else
-    echo "[dcim] health=down  url=${URL}"
-    return 1
-  fi
-}
-
-case "${cmd}" in
-  stop)
-    echo "[dcim] release=${RELEASE}  stop"
-    stop_existing
-    echo "[dcim] stopped"
-    exit 0
-    ;;
+case "${1:-start}" in
+  stop) say "$RELEASE · stop"; stop_web; stop_collector; say "stopped"; exit 0 ;;
   status)
-    status
-    exit $?
-    ;;
-  start|restart|"")
-    ;;
-  *)
-    echo "usage: $0 [start|stop|status]"
-    exit 2
-    ;;
+    say "$RELEASE · port $PORT · web pid $(cat "$WEB_PID" 2>/dev/null || echo none) · collector pid $(cat "$COL_PID" 2>/dev/null || echo none/embedded)"
+    if healthy; then say "health: ok · $URL"; curl -s "$URL/healthz"; echo; else say "health: down"; curl -s "$URL/healthz" 2>/dev/null; echo; exit 1; fi
+    exit 0 ;;
+  logs) tail -f "$WEB_LOG" "$COL_LOG" ;;
+  web)
+    say "$RELEASE · restarting web only"
+    stop_web; start_web
+    say "open   $URL"; exit 0 ;;
+  start|restart) ;;
+  *) echo "usage: $0 [start|stop|status|logs|web]"; exit 2 ;;
 esac
 
-echo "[dcim] release=${RELEASE}  port=${PORT}"
-stop_existing
+say "$RELEASE · port $PORT"
+stop_web
+stop_collector
 
-if [[ ! -d .venv ]]; then
-  echo "[dcim] creating .venv"
+if [[ ! -x .venv/bin/python ]]; then
+  say "creating .venv"
   python3 -m venv .venv
 fi
-# shellcheck disable=SC1091
-source .venv/bin/activate
-echo "[dcim] installing deps"
-python -m pip install -q -U pip
-python -m pip install -q -r requirements.txt
+say "installing dependencies"
+.venv/bin/python -m pip install -q --disable-pip-version-check -r requirements.txt
 
-ensure_redis
-
-export PYTHONPATH="${ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
-export APP_PORT="${PORT}"
-export APP_HOST="${HOST}"
-
-nohup python -m uvicorn app.main:app --host 0.0.0.0 --port "${PORT}" \
-  >>"${LOG_FILE}" 2>&1 &
-echo $! >"${PID_FILE}"
-PID="$(cat "${PID_FILE}")"
-
-ok=0
-for _ in $(seq 1 25); do
-  if curl -sf -o /dev/null "${URL}/api/live" 2>/dev/null; then
-    ok=1
-    break
-  fi
-  sleep 0.4
-done
-
-if [[ "${ok}" -eq 1 ]]; then
-  echo "[dcim] started pid=${PID}"
-  echo "[dcim] open  ${URL}"
-  echo "[dcim] log   ${LOG_FILE}"
-  echo "[dcim] stop  ./run_mac.sh stop"
+if ensure_redis; then
+  export GRID_STORE=redis GRID_COLLECTOR=auto
+  start_collector
 else
-  echo "[dcim] ERROR: server did not become healthy — see ${LOG_FILE}"
-  tail -n 40 "${LOG_FILE}" || true
-  exit 1
+  export GRID_STORE=memory GRID_COLLECTOR=embedded
 fi
+start_web
+
+say "open   $URL"
+say "logs   $WEB_LOG · $COL_LOG"
+say "stop   ./run_mac.sh stop"

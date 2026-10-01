@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set n = d.node %}
+<div class="page-head">
+  <div><h1 class="row"><span class="mono">{{ n.id }}</span> {{ pill(n.status) }}</h1><p>{{ n.model }} · {{ n.role }} · rack {{ n.rack }} · {{ n.cpu_cores }} cores · {{ (n.mem_gb/1024)|num(0) }} TB · kubelet {{ n.kubelet }}</p></div>
+  <div class="page-actions"><a class="btn" href="/kubernetes">← Kubernetes</a><a class="btn" href="/platform/vendors">iDRAC Redfish probe</a></div>
+</div>
+<div class="g g-4">
+  <div class="panel tight">{{ kpi('CPU', n.cpu_pct, '%', '', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Memory', n.mem_pct, '%', '', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Pods', n.pods, '', '', size='s') }}</div>
+  <div class="panel tight"><div class="kpi"><div class="kpi-label">Conditions</div><div class="row wrap mt-s" style="gap:5px">{% for c in d.conditions %}<span class="pill {{ 'ok' if (c.type == 'Ready' and c.status == 'True') or (c.type != 'Ready' and c.status == 'False') else 'crit' }}">{{ c.type }}={{ c.status }}</span>{% endfor %}</div></div></div>
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-8">{{ head('CPU · memory · pods', '60 min · 10 s resolution') }}<div class="chart l" id="c-node"></div></div>
+  <div class="panel s-4">{{ head('Hardware') }}{% for k, v in d.hardware.items() %}<div class="stat-line"><span>{{ k }}</span><span class="small">{{ v }}</span></div>{% endfor %}</div>
+</div>
+<div class="panel flush mt">
+  {{ head('Workloads', 'pods scheduled on this node') }}
+  <div class="table-wrap scroll"><table class="t" data-sortable><thead><tr><th>Pod</th><th>Namespace</th><th>App</th><th>Status</th><th class="right">CPU m</th><th class="right">Mem MiB</th><th class="right">Restarts</th><th class="right">Age</th></tr></thead><tbody>
+    {% for p in d.pods %}<tr><td class="mono small">{{ p.name }}</td><td>{{ p.namespace }}</td><td>{{ p.app }}</td><td>{{ pill(p.status) }}</td><td class="right">{{ p.cpu_now|num(0) }}</td><td class="right">{{ p.mem_now|num(0) }}</td><td class="right">{{ p.restarts }}</td><td class="right" data-v="{{ p.age_s }}">{{ p.age_s|dur }}</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C, col = {{ d.col }};
+  const [c, m, p] = await Promise.all(["k8s_node_cpu_pct", "k8s_node_mem_pct", "k8s_node_pods"].map((x) => K.series(x, { col, minutes: 60 })));
+  K.line("c-node", [{ name: "CPU %", data: c, type: "areaspline" }, { name: "memory %", data: m, color: C.steel }, { name: "pods", data: p, yAxis: 1, color: C.violet }], { y2: "pods", min: 0, max: 100, decimals: 1 });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Workloads</h1><p>Jobs &amp; schedule across Slurm and CubeFlow, MIG partitioning on the inference pool, RCS developer sessions, and the signed container image registry.</p></div>
+  <div class="page-actions"><a class="btn teal" href="/gpu-platform#launch">Launch workload</a><a class="btn" href="/platform/simulation?run=demand-surge">Simulate demand surge</a></div>
+</div>
+<div class="g g-5">
+  <div class="panel tight">{{ kpi('Running', d.running|length, 'jobs', (d.running|sum(attribute='gpus'))|num(0) ~ ' GPUs', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Pending', d.pending|length, 'jobs', (d.pending|sum(attribute='gpus'))|num(0) ~ ' GPUs requested', size='s', cls='t-warn' if d.pending|length > 10 else '') }}</div>
+  <div class="panel tight">{{ kpi('MIG GPUs', d.mig|length, '', (d.mig|map(attribute='instances')|map('length')|sum) ~ ' instances', size='s') }}</div>
+  <div class="panel tight">{{ kpi('RCS sessions', d.rcs|length, '', (d.rcs|selectattr('idle')|list|length) ~ ' idle > reclaim candidates', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Cloud burst', d.burst|length, 'jobs', 'to AWS Capacity Blocks', size='s') }}</div>
+</div>
+
+<div class="panel mt" data-tab-scope>
+  <div class="tabs" data-tabs="tab" data-default="{{ tab }}">
+    <button data-tab="jobs">Jobs &amp; schedule<span class="count">{{ d.running|length + d.pending|length }}</span></button>
+    <button data-tab="partition">MIG partitioning</button>
+    <button data-tab="rcs">RCS sessions<span class="count">{{ d.rcs|length }}</span></button>
+    <button data-tab="images">Images</button>
+  </div>
+
+  <div data-panel="jobs" data-group="tab">
+    <div class="g g-4 mb">
+      {% for p in d.partitions %}<div class="mini"><div class="row between"><b class="small">{{ p.id }}</b><span class="xs mono muted">{{ p.running }} run · {{ p.pending }} pend</span></div>
+        <div class="mt-s">{{ bar(p.allocated_gpus / (p.gpus or 1) * 100) }}</div><div class="xs muted mt-s">{{ '{:,}'.format(p.allocated_gpus) }} / {{ '{:,}'.format(p.gpus) }} GPUs · util {{ p.util }}%</div></div>{% endfor %}
+    </div>
+    <div class="table-tools"><input class="input" placeholder="Filter jobs… (name, project, user, partition)" data-filter="#t-run"><button class="btn sm" data-export="#t-run" data-name="running-jobs">CSV</button></div>
+    <div class="section-title">Running</div>
+    <div class="table-wrap scroll-s"><table class="t" id="t-run" data-sortable><thead><tr><th>Job</th><th>Name</th><th>Project</th><th>User</th><th>Orchestrator</th><th>Partition</th><th class="right">GPUs</th><th class="right">Nodes</th><th>Progress</th><th class="right">Speed</th><th class="right">Runtime</th><th class="right">ETA</th></tr></thead><tbody>
+      {% for j in d.running %}<tr data-href="/gpu-fleet/job/{{ j.id }}" class="{{ 'warn' if j.speed < 0.85 else '' }}"><td class="mono">{{ j.id }}</td><td><b class="small">{{ j.name }}</b> <span class="tag">{{ j.profile }}</span></td><td class="small">{{ j.project }}</td><td class="small muted">{{ j.user }}</td>
+        <td><span class="tag {{ 'teal' if j.orchestrator == 'cubeflow' else '' }}">{{ j.orchestrator }}</span></td><td>{{ j.partition }}</td><td class="right">{{ '{:,}'.format(j.gpus) }}</td><td class="right">{{ j.nodes or '—' }}</td>
+        <td>{% if j.service %}<span class="xs muted">service</span>{% else %}<div class="cell-bar">{{ bar(j.progress) }}<span class="xs muted">{{ j.progress }}%</span></div>{% endif %}</td>
+        <td class="right {{ 't-warn' if j.speed < 0.85 else '' }}">{{ j.speed }}×</td><td class="right">{{ j.runtime_s|dur }}</td><td class="right">{{ j.eta_s|dur if j.eta_s is not none else '—' }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    <div class="g g-2 mt">
+      <div>
+        <div class="section-title">Pending · queue order</div>
+        <div class="table-wrap scroll-s"><table class="t"><thead><tr><th>Job</th><th>Name</th><th>Project</th><th>Partition</th><th class="right">GPUs</th><th class="right">Waiting</th><th>Reason</th></tr></thead><tbody>
+          {% for j in d.pending %}<tr data-href="/gpu-fleet/job/{{ j.id }}"><td class="mono">{{ j.id }}</td><td class="small">{{ j.name }}</td><td class="small">{{ j.project }}</td><td>{{ j.partition }}</td><td class="right">{{ '{:,}'.format(j.gpus) }}</td><td class="right">{{ j.wait_s|dur }}</td><td class="xs muted">{{ j.reason or 'Resources' }}</td></tr>{% else %}<tr><td colspan="7" class="empty">Queue empty — every job placed.</td></tr>{% endfor %}
+        </tbody></table></div>
+      </div>
+      <div>
+        <div class="section-title">Finished · since boot</div>
+        <div class="table-wrap scroll-s"><table class="t"><thead><tr><th>Job</th><th>Name</th><th>Project</th><th class="right">GPUs</th><th class="right">Runtime</th><th>State</th></tr></thead><tbody>
+          {% for j in d.finished %}<tr data-href="/gpu-fleet/job/{{ j.id }}"><td class="mono">{{ j.id }}</td><td class="small">{{ j.name }}</td><td class="small">{{ j.project }}</td><td class="right">{{ j.gpus }}</td><td class="right">{{ j.runtime_s|dur }}</td><td>{{ pill('ok' if j.state == 'COMPLETED' else 'critical', j.state|lower) }}{% if j.reason %}<div class="xs muted">{{ j.reason }}</div>{% endif %}</td></tr>{% else %}<tr><td colspan="6" class="empty">Nothing finished yet.</td></tr>{% endfor %}
+        </tbody></table></div>
+      </div>
+    </div>
+    {% if d.burst %}
+    <div class="section-title">Cloud burst · AWS Capacity Blocks</div>
+    <table class="t"><thead><tr><th>Job</th><th>Name</th><th>Project</th><th class="right">GPUs</th><th class="right">Instances</th><th>Burst at</th></tr></thead><tbody>
+      {% for b in d.burst %}<tr data-href="/cloud/aws"><td class="mono">{{ b.job }}</td><td class="small">{{ b.name }}</td><td class="small">{{ b.project }}</td><td class="right">{{ b.gpus }}</td><td class="right">{{ b.instances }}</td><td class="mono small">{{ b.t|kst }}</td></tr>{% endfor %}
+    </tbody></table>
+    {% endif %}
+  </div>
+
+  <div data-panel="partition" data-group="tab">
+    <div class="g g-12">
+      <div class="s-4">
+        {{ head('B300 MIG profiles', '288 GB HBM3e · max instances per GPU') }}
+        <table class="t"><thead><tr><th>Profile</th><th class="right">Max / GPU</th><th>Typical use</th></tr></thead><tbody>
+          {% for p, n in d.mig_profiles.items() %}<tr><td><span class="tag">{{ p }}</span></td><td class="right">{{ n }}</td><td class="xs muted">{{ {'1g.36gb':'embeddings · small TTS','2g.72gb':'8B serving','3g.144gb':'30B-class serving','4g.144gb':'mixed pool','7g.288gb':'whole GPU (70B FP8)'}[p] }}</td></tr>{% endfor %}
+        </tbody></table>
+        <div class="section-title">Layouts in use</div>
+        {% for l in d.mig_layouts %}<div class="row mb" style="gap:3px">{% for p in l %}{% set w = {'1g.36gb':1,'2g.72gb':2,'3g.144gb':3,'4g.144gb':4,'7g.288gb':7}[p] %}<span class="tag teal" style="flex:{{ w }};text-align:center">{{ p }}</span>{% endfor %}</div>{% endfor %}
+      </div>
+      <div class="s-8">
+        {{ head('MIG-enabled GPUs', 'inference pool · R31–R35 · click a slice for its pod') }}
+        <div class="table-wrap scroll-s"><table class="t" data-sortable><thead><tr><th>GPU</th><th>Node</th><th class="right">Util</th><th class="right">HBM</th><th>Instances</th></tr></thead><tbody>
+          {% for g in d.mig %}<tr><td class="mono small"><a class="link" href="/gpu-fleet/device/{{ g.gpu }}">{{ g.gpu }}</a></td><td class="mono small muted">{{ g.node }}</td><td class="right">{{ g.util }}%</td><td class="right">{{ g.mem_gb|num(0) }} GB</td>
+            <td><div class="row" style="gap:3px;flex-wrap:nowrap">{% for x in g.instances %}<a class="tag" href="/gpu-fleet/pod/{{ x.pod }}" title="{{ x.service }} · {{ x.pod }}">{{ x.profile }}</a>{% endfor %}</div></td></tr>{% endfor %}
+        </tbody></table></div>
+      </div>
+    </div>
+  </div>
+
+  <div data-panel="rcs" data-group="tab">
+    <div class="note mb">Remote Coding Sessions (JupyterLab / VS Code / shell) on the <b>dev</b> partition. Sessions under 5% utilization are flagged as reclaim candidates — idle GPUs cost {{ '₩2,600' }}/GPU·h in chargeback.</div>
+    <div class="table-wrap"><table class="t" data-sortable><thead><tr><th>Session</th><th>User</th><th>Project</th><th>Kind</th><th>Image</th><th class="right">GPUs</th><th>Node</th><th class="right">Util</th><th class="right">Uptime</th><th></th></tr></thead><tbody>
+      {% for r in d.rcs %}<tr class="{{ 'warn' if r.idle else '' }}"><td class="mono">{{ r.id }}</td><td class="small">{{ r.user }}</td><td class="small">{{ r.project }}</td><td><span class="tag">{{ r.kind }}</span></td><td class="xs mono muted">{{ r.image }}</td><td class="right">{{ r.gpus }}</td>
+        <td class="mono small"><a class="link" href="/gpu-fleet/node/{{ r.node }}">{{ r.node }}</a></td><td class="right {{ 't-warn' if r.idle else '' }}">{{ r.util }}%</td><td class="right">{{ r.uptime_s|dur }}</td><td>{% if r.idle %}{{ pill('warning', 'idle') }}{% endif %}</td></tr>{% else %}<tr><td colspan="10" class="empty">No RCS sessions running.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+
+  <div data-panel="images" data-group="tab">
+    <div class="table-wrap"><table class="t" data-sortable><thead><tr><th>Repository</th><th>Tag</th><th>CUDA</th><th class="right">Size</th><th>Updated</th><th class="right">Pulls · 7 d</th><th>CVE</th><th>Signed</th></tr></thead><tbody>
+      {% for i in d.images %}<tr><td class="mono">{{ i.repo }}</td><td><span class="tag">{{ i.tag }}</span></td><td>{{ i.cuda }}</td><td class="right">{{ i.size_gb }} GB</td><td class="small muted">{{ i.updated }}</td><td class="right">{{ '{:,}'.format(i.pulls_7d) }}</td>
+        <td>{% if i.crit %}<span class="pill crit">{{ i.crit }} critical</span>{% elif i.high %}<span class="pill warn">{{ i.high }} high</span>{% else %}<span class="pill ok">clean</span>{% endif %}</td><td>{{ pill('ok' if i.signed else 'warning', 'cosign' if i.signed else 'unsigned') }}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set g = d.gpu %}
+<div class="page-head">
+  <div><h1 class="row"><span class="mono">{{ g.id }}</span> {{ pill(g.health) }}{% if g.throttle != 'none' %}<span class="pill warn">throttle · {{ g.throttle }}</span>{% endif %}</h1>
+    <p>{{ g.model }} · {{ g.hbm_gb }} GB HBM3e · node <a class="link" href="/gpu-fleet/node/{{ g.node }}">{{ g.node }}</a> · rack <a class="link" href="/rack/{{ g.rack }}">{{ g.rack }}</a> · GPU{{ g.slot }}</p></div>
+  <div class="page-actions">
+    <select class="input" id="xid-code">{% for c, lab in [(79,'79 · fell off bus'),(48,'48 · DBE ECC'),(94,'94 · contained ECC'),(74,'74 · NVLink'),(13,'13 · graphics exception'),(119,'119 · GSP timeout')] %}<option value="{{ c }}">Xid {{ lab }}</option>{% endfor %}</select>
+    <button class="btn" id="xid-btn">Inject XID</button>
+  </div>
+</div>
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('Utilization', g.util|num(1), '%', 'SM active ' ~ g.sm ~ '% · mem BW ' ~ g.membw ~ '%', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Power', g.power_w|num(0), 'W', 'TDP ' ~ d.limits.tdp_w|num(0) ~ ' W', size='s') }}</div>
+  <div class="panel tight">{{ kpi('GPU temperature', g.temp_c|num(1), '°C', 'HBM ' ~ g.hbm_c ~ ' °C · throttle at ' ~ d.limits.throttle_c|num(0), size='s', cls='t-crit' if g.temp_c >= 87 else '') }}</div>
+  <div class="panel tight">{{ kpi('Coolant in', g.coolant_c|num(1), '°C', 'ΔT ' ~ ((g.temp_c - g.coolant_c)|num(1)) ~ ' K · 0.0275 K/W', size='s') }}</div>
+  <div class="panel tight">{{ kpi('HBM used', g.mem_gb|num(0), 'GB', g.mem_pct ~ '% of 288 GB', size='s') }}</div>
+  <div class="panel tight">{{ kpi('SM clock', g.clock_mhz, 'MHz', 'NVLink ' ~ (g.nvlink_gbs|num(0)) ~ ' GB/s · PCIe ' ~ g.pcie_gbs ~ ' GB/s', size='s') }}</div>
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-8">{{ head('Device telemetry', 'util · power · temperature · HBM · 60 min (30 s resolution)') }}<div class="chart l" id="c-dev"></div></div>
+  <div class="panel s-4">
+    {{ head('Health & errors') }}
+    <div class="stat-line"><span>ECC single-bit (corrected)</span><span>{{ g.ecc_sbe }}</span></div>
+    <div class="stat-line"><span>ECC double-bit</span><span class="{{ 't-crit' if g.ecc_dbe else '' }}">{{ g.ecc_dbe }}</span></div>
+    <div class="stat-line"><span>Last XID</span><span>{% if g.xid %}<span class="tag">{{ g.xid }}</span> {{ g.xid_desc }} · {{ g.xid_age_s|dur }} ago{% else %}none{% endif %}</span></div>
+    <div class="stat-line"><span>Throttle reason</span><span>{{ g.throttle }}</span></div>
+    <div class="section-title">XID history</div>
+    {% for x in d.xids %}<div class="stat-line"><span class="mono small">{{ x.t|kst }}</span><span><span class="tag">{{ x.code }}</span> {{ x.desc }}</span></div>{% else %}<div class="small muted">No XID on this device.</div>{% endfor %}
+    <div class="section-title">Same node</div>
+    <div class="row wrap" style="gap:5px">{% for s in d.siblings %}<a class="tag {{ 'teal' if s.self else '' }}" href="/gpu-fleet/device/{{ s.id }}">g{{ s.slot }} · {{ s.util|num(0) }}% · {{ s.temp|num(0) }}°</a>{% endfor %}</div>
+  </div>
+</div>
+<div class="g g-2 mt">
+  <div class="panel">
+    {{ head('Workload', 'Slurm / CubeFlow') }}
+    {% if g.job %}{% set j = g.job %}
+      <a class="list-item" href="/gpu-fleet/job/{{ j.id }}"><div class="li-main"><div class="li-title">{{ j.name }} <span class="mono muted">#{{ j.id }}</span></div>
+      <div class="li-sub">{{ j.project }} · {{ j.user }} · {{ j.orchestrator }} · {{ j.gpus }} GPUs on {{ j.nodes }} nodes · speed {{ j.speed }}×</div>
+      {% if not j.service %}<div class="mt-s">{{ bar(j.progress) }}</div>{% endif %}</div></a>
+    {% else %}<div class="empty">Unallocated — available to the scheduler.</div>{% endif %}
+  </div>
+  <div class="panel">
+    {{ head('MIG layout', 'B300 · up to 7 instances') }}
+    {% if g.mig %}<table class="t"><thead><tr><th>Instance</th><th>Profile</th><th>Service</th><th>Pod</th></tr></thead><tbody>
+      {% for x in g.mig %}<tr data-href="/gpu-fleet/pod/{{ x.pod }}"><td>{{ x.instance }}</td><td><span class="tag">{{ x.profile }}</span></td><td>{{ x.service }}</td><td class="mono small">{{ x.pod }}</td></tr>{% endfor %}
+    </tbody></table>{% else %}<div class="empty">MIG disabled — whole-GPU mode.</div>{% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C, col = {{ d.series_col }};
+  const [u, p, t, m] = await Promise.all(["gpu_util_pct", "gpu_power_w", "gpu_temp_c", "gpu_mem_gb"].map((x) => K.series(x, { col, minutes: 60 })));
+  K.line("c-dev", [{ name: "util %", data: u, type: "areaspline" }, { name: "power W", data: p, yAxis: 1, color: C.steel }, { name: "temp °C", data: t, color: C.amber }, { name: "HBM GB", data: m, color: C.violet, visible: false }],
+    { y2: "W", decimals: 1, min: 0 });
+  document.getElementById("xid-btn").addEventListener("click", async () => {
+    const code = +document.getElementById("xid-code").value;
+    if (!confirm(`Inject Xid ${code} on {{ d.gpu.id }}?`)) return;
+    await Grid.postJSON("/api/gpu/device/{{ d.gpu.id }}/xid", { code }); Grid.toast("warning", "Xid " + code + " injected", "{{ d.gpu.id }}"); setTimeout(() => location.reload(), 700);
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head, icon %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Power</h1><p>2N distribution: two KEPCO 154 kV feeds → 40 MVA main transformers → 22.9 kV MV → UPS A/B per hall → dual busways → dual-corded racks. Ten 3 MW gensets back both paths.</p></div>
+  <div class="page-actions"><span class="pill {{ d.redundancy|level }}" data-live-pill="power.redundancy">{{ d.redundancy }}</span><a class="btn" href="/platform/simulation?run=ups-fault">Run UPS failover drill</a></div>
+</div>
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('Utility intake', (d.utility['UTIL-1'].mw + d.utility['UTIL-2'].mw)|num(2), 'MW', 'line 1 <span data-live="power.utility.UTIL-1.mw" data-fmt="f2">' ~ (d.utility['UTIL-1'].mw|num(2)) ~ '</span> · line 2 <span data-live="power.utility.UTIL-2.mw" data-fmt="f2">' ~ (d.utility['UTIL-2'].mw|num(2)) ~ '</span>', size='s') }}</div>
+  <div class="panel tight">{{ kpi('A-path', d.side_mw.A|num(2), 'MW', 'UPS A + half mechanical', live='power.side_mw.A', fmt='f2', size='s') }}</div>
+  <div class="panel tight">{{ kpi('B-path', d.side_mw.B|num(2), 'MW', 'UPS B + half mechanical', live='power.side_mw.B', fmt='f2', size='s') }}</div>
+  <div class="panel tight">{{ kpi('UPS losses', (d.ups_loss_mw * 1000)|num(0), 'kW', 'double-conversion η curve', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Gensets running', d.gens_running, '/ 10', 'Cummins QSK95 · N+2', live='power.gens_running', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Power quality', d.pq.pf, 'PF', d.pq.freq_hz ~ ' Hz · THD ' ~ d.pq.thd_pct ~ '% · ' ~ d.pq.mv_kv ~ ' kV', live='power.pq.pf', fmt='f3', size='s') }}</div>
+</div>
+
+<div class="panel mt">
+  {{ head('Single-line diagram · live', 'teal = A path · steel = B path · dashed flow = energized · red = fault / lost. Click any element.') }}
+  <svg class="diagram" viewBox="0 0 1200 470" id="sld">
+    <defs><marker id="arr" viewBox="0 0 8 8" refX="4" refY="4" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 8 4 0 8z" fill="#3a3a42"/></marker></defs>
+    {% set sides = {'A': {'x': 300, 'col': '#2dd4bf', 'u': 'UTIL-1', 'tx': 'TX-A', 'mv': 'MV-A'}, 'B': {'x': 900, 'col': '#8b95a5', 'u': 'UTIL-2', 'tx': 'TX-B', 'mv': 'MV-B'}} %}
+    {% for sd, s in sides.items() %}
+      <path d="M{{ s.x }} 62 V104 M{{ s.x }} 146 V188" stroke="{{ s.col }}" stroke-width="2.4" fill="none" class="flow-line" data-flow="{{ s.u }}"/>
+      <line x1="{{ s.x - 250 }}" y1="206" x2="{{ s.x + 250 }}" y2="206" stroke="{{ s.col }}" stroke-width="4" opacity=".9" data-bus="{{ s.mv }}"/>
+      <text x="{{ s.x - 250 }}" y="198" fill="#8b8f98" font-size="11">{{ s.mv }} · 22.9 kV bus</text>
+      {% for i in range(5) %}{% set gx = s.x - 230 + i * 40 if sd == 'A' else s.x + 70 + i * 40 %}{% set gid = 'GEN-%02d'|format(i + 1 if sd == 'A' else i + 6) %}
+        <a href="/facility/power/{{ gid }}"><g data-gen="{{ gid }}"><line x1="{{ gx }}" y1="226" x2="{{ gx }}" y2="206" stroke="#3a3a42" stroke-width="1.5"/>
+        <circle cx="{{ gx }}" cy="238" r="12" fill="#121215" stroke="#3a3a42" stroke-width="1.5"/><text x="{{ gx }}" y="242" text-anchor="middle" fill="#8b8f98" font-size="9" font-weight="600">G{{ gid[-2:] }}</text></g></a>
+      {% endfor %}
+      {% for n in [s.u, s.tx] %}{% set y = 20 if loop.index == 1 else 104 %}
+        <a href="/facility/power/{{ n }}"><g data-node="{{ n }}"><rect x="{{ s.x - 95 }}" y="{{ y }}" width="190" height="42" rx="9" fill="#121215" stroke="{{ s.col }}" stroke-width="1.4"/>
+        <text x="{{ s.x - 82 }}" y="{{ y + 18 }}" fill="#f3f4f6" font-size="12" font-weight="650">{{ n }}</text>
+        <text x="{{ s.x - 82 }}" y="{{ y + 33 }}" fill="#8b8f98" font-size="10.5">{{ 'KEPCO 154 kV' if loop.index == 1 else '154/22.9 kV · 40 MVA' }}</text>
+        <text x="{{ s.x + 82 }}" y="{{ y + 26 }}" text-anchor="end" fill="#f3f4f6" font-size="13" font-weight="650" data-mw="{{ n }}">—</text></g></a>
+      {% endfor %}
+    {% endfor %}
+    {% for h in ['HA', 'HB', 'HC'] %}{% set hi = loop.index0 %}
+      {% for sd in ['A', 'B'] %}{% set s = sides[sd] %}{% set ux = s.x - 190 + hi * 190 %}{% set uid = 'UPS-' ~ sd ~ '-' ~ h %}{% set hx = 300 + hi * 300 %}
+        <path d="M{{ ux }} 206 V282" stroke="{{ s.col }}" stroke-width="2" class="flow-line" data-flow="{{ uid }}"/>
+        <path d="M{{ ux }} 330 C {{ ux }} 372, {{ hx + (-26 if sd == 'A' else 26) }} 360, {{ hx + (-26 if sd == 'A' else 26) }} 400" stroke="{{ s.col }}" stroke-width="2" fill="none" class="flow-line" data-flow="{{ uid }}-out"/>
+        <a href="/facility/power/{{ uid }}"><g data-node="{{ uid }}"><rect x="{{ ux - 70 }}" y="282" width="140" height="48" rx="9" fill="#121215" stroke="{{ s.col }}" stroke-width="1.3"/>
+        <text x="{{ ux - 60 }}" y="300" fill="#f3f4f6" font-size="11.5" font-weight="650">{{ uid }}</text>
+        <text x="{{ ux - 60 }}" y="316" fill="#8b8f98" font-size="10" data-sub="{{ uid }}">—</text>
+        <text x="{{ ux + 60 }}" y="300" text-anchor="end" fill="#f3f4f6" font-size="11.5" font-weight="650" data-mw="{{ uid }}">—</text>
+        <rect x="{{ ux - 60 }}" y="321" width="120" height="3" rx="1.5" fill="#1e1e23"/><rect x="{{ ux - 60 }}" y="321" width="0" height="3" rx="1.5" fill="{{ s.col }}" data-loadbar="{{ uid }}"/></g></a>
+      {% endfor %}
+      {% set hx = 300 + hi * 300 %}
+      <a href="/facility/hall/{{ h }}"><g><rect x="{{ hx - 110 }}" y="400" width="220" height="56" rx="10" fill="#0f0f11" stroke="#34343b" stroke-width="1.3"/>
+      <text x="{{ hx - 98 }}" y="421" fill="#f3f4f6" font-size="12.5" font-weight="650">{{ {'HA': 'Hall A · GPU', 'HB': 'Hall B · GPU', 'HC': 'Hall C · Storage/Net/K8s'}[h] }}</text>
+      <text x="{{ hx - 98 }}" y="441" fill="#8b8f98" font-size="10.5">dual-corded racks · A + B busways</text>
+      <text x="{{ hx + 98 }}" y="441" text-anchor="end" fill="#2dd4bf" font-size="13" font-weight="650" data-hall="{{ h }}">—</text></g></a>
+    {% endfor %}
+  </svg>
+</div>
+
+<div class="g g-12 mt">
+  <div class="panel s-8">
+    {{ head('A / B path load', 'MW · last 60 min') }}
+    <div class="chart m" id="c-sides"></div>
+  </div>
+  <div class="panel s-4">
+    {{ head('Rack power density', 'all racks · kW') }}
+    <div class="chart m" id="c-density"></div>
+  </div>
+</div>
+
+<div class="section-title">UPS · per hall, per path</div>
+<div class="g g-3">
+  {% for h in d.halls %}
+  <div class="panel">
+    {{ head(h.name ~ ' UPS pair', 'hall IT ' ~ (h.it_mw|num(2)) ~ ' MW · 2 × 6 MW (4 × 1.5 MW modules)', '/facility/hall/' ~ h.hall, 'Hall') }}
+    {% for u in [h.a, h.b] %}
+    <a class="list-item" href="/facility/power/{{ u.id }}">
+      <div class="li-main">
+        <div class="row between"><span class="li-title mono">{{ u.id }}</span><span class="pill {{ u.status|level }}" data-live-pill="power.ups.{{ u.id }}.status">{{ u.status }}</span></div>
+        <div class="meter mt-s"><span class="muted">load <span class="tnum" data-live="power.ups.{{ u.id }}.load_pct" data-fmt="f1">{{ u.load_pct }}</span>%</span><span class="tnum muted">η <span data-live="power.ups.{{ u.id }}.eff" data-fmt="f2">{{ u.eff }}</span>% · SOC <span data-live="power.ups.{{ u.id }}.soc" data-fmt="int">{{ u.soc|num }}</span>%</span>{{ bar(u.load_pct, '' if u.side == 'A' else 'steel', live='power.ups.' ~ u.id ~ '.load_pct', warn=70, crit=90) }}</div>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+
+<div class="g g-2 mt">
+  <div class="panel flush">
+    {{ head('Busways', 'per row · per feed') }}
+    <div class="table-wrap scroll-s"><table class="t" data-sortable id="t-busway"><thead><tr><th>Busway</th><th>Row</th><th>Feed</th><th class="right">kW</th><th>Load</th></tr></thead><tbody>
+      {% for b in d.groups.busway %}
+      <tr data-href="/facility/power/{{ b.id }}"><td class="mono">{{ b.id }}</td><td>{{ b.row }}</td><td>{{ b.side }}</td><td class="right">{{ (b.load_mw * 1000)|num(0) }}</td><td><div class="cell-bar">{{ bar(b.load_pct, '' if b.side == 'A' else 'steel') }}<span class="xs muted">{{ b.load_pct|num(0) }}%</span></div></td></tr>
+      {% endfor %}
+    </tbody></table></div>
+  </div>
+  <div class="panel flush">
+    {{ head('Gensets', '10 × 3.0 MW · auto-start on utility loss') }}
+    <div class="table-wrap scroll-s"><table class="t" data-sortable><thead><tr><th>Genset</th><th>Path</th><th>Status</th><th class="right">Load</th><th>Fuel</th></tr></thead><tbody>
+      {% for g in d.groups.generator %}
+      <tr data-href="/facility/power/{{ g.id }}"><td class="mono">{{ g.id }}</td><td>{{ g.side }}</td><td>{{ pill(g.status) }}</td><td class="right">{{ g.load_mw|num(2) }} MW</td><td class="small muted">{{ g.detail }}</td></tr>
+      {% endfor %}
+    </tbody></table></div>
+  </div>
+</div>
+
+<div class="panel flush mt">
+  {{ head('Top racks by power', 'kW vs design · click for elevation', '/rack-view', 'Rack View') }}
+  <div class="table-wrap"><table class="t" data-sortable><thead><tr><th>Rack</th><th>Hall</th><th>Row</th><th class="right">kW</th><th class="right">Design</th><th>Loading</th></tr></thead><tbody>
+    {% for r in d.top_racks %}<tr data-href="/rack/{{ r.rack }}"><td class="mono">{{ r.rack }}</td><td>{{ r.hall }}</td><td>{{ r.row }}</td><td class="right">{{ r.kw|num(1) }}</td><td class="right muted">{{ r.design_kw|num(0) }}</td><td><div class="cell-bar">{{ bar(r.kw / r.design_kw * 100) }}</div></td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C, F = Grid.fmt;
+  const [a, b] = await K.seriesMulti("power_side_mw", [0, 1], { minutes: 60 });
+  const ch = K.area("c-sides", [{ name: "A path", data: a, color: C.teal }, { name: "B path", data: b, color: C.steel }], { decimals: 3, unit: "MW" });
+  const dens = {{ d.rack_density|tojson }};
+  K.columns("c-density", dens.map((x) => x.bin), [{ name: "racks", data: dens.map((x) => x.count), color: C.teal }], { legend: false, labels: true });
+  const col = (st) => ({ fault: "#F9423A", lost: "#F9423A", "on-battery": "#fbbf24", "online · genset": "#fbbf24" }[st]);
+  async function paint() {
+    const d = await Grid.getJSON("/api/facility/power");
+    const set = (sel, txt) => document.querySelectorAll(sel).forEach((e) => (e.textContent = txt));
+    for (const [id, u] of Object.entries(d.utility)) {
+      set(`[data-mw="${id}"]`, F.f2(u.mw) + " MW");
+      document.querySelectorAll(`[data-flow="${id}"]`).forEach((p) => { p.style.opacity = u.status === "lost" ? 0.15 : 1; p.classList.toggle("flow-line", u.status !== "lost"); });
+      const r = document.querySelector(`[data-node="${id}"] rect`); if (r) r.setAttribute("stroke", u.status === "lost" ? "#F9423A" : (id === "UTIL-1" ? "#2dd4bf" : "#8b95a5"));
+    }
+    for (const t of (d.groups.transformer || [])) set(`[data-mw="${t.id}"]`, F.f2(t.load_mw) + " MW");
+    for (const u of (d.groups.ups || [])) {
+      set(`[data-mw="${u.id}"]`, F.f2(u.load_mw) + " MW");
+      set(`[data-sub="${u.id}"]`, `${u.status} · ${F.f1(u.load_pct)}%`);
+      const lb = document.querySelector(`[data-loadbar="${u.id}"]`); if (lb) lb.setAttribute("width", Math.min(120, u.load_pct * 1.2));
+      const r = document.querySelector(`[data-node="${u.id}"] rect`); const c = col(u.status);
+      if (r) r.setAttribute("stroke", c || (u.side === "A" ? "#2dd4bf" : "#8b95a5"));
+      document.querySelectorAll(`[data-flow^="${u.id}"]`).forEach((p) => { p.style.opacity = u.status === "fault" ? 0.12 : 1; p.style.strokeWidth = 1.2 + u.load_pct / 30; });
+    }
+    for (const h of d.halls) set(`[data-hall="${h.hall}"]`, F.f2(h.it_mw) + " MW");
+    for (const g of (d.groups.generator || [])) {
+      const c = document.querySelector(`[data-gen="${g.id}"] circle`); if (!c) continue;
+      c.setAttribute("stroke", g.status === "running" ? "#fbbf24" : g.status === "starting" ? "#fbbf24" : "#3a3a42");
+      c.setAttribute("fill", g.status === "running" ? "rgba(251,191,36,.18)" : "#121215");
+    }
+  }
+  paint(); setInterval(() => !document.hidden && paint(), 3000);
+  Grid.onLive((L) => { const ms = L.ts * 1000; K.push(ch, 0, ms, L.power.side_mw.A); K.push(ch, 1, ms, L.power.side_mw.B); });
+})();
+</script>
+{% endblock %}

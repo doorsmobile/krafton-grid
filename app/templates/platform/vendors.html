@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, pill, head %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Vendors &amp; API</h1><p>The equipment and service vendors Grid integrates with, grouped Facility · IT · Cloud (AWS → GCP → NHN). Each card shows the protocol and endpoint Grid would poll in production; <b>Probe</b> returns a payload shaped like that vendor's real API, filled from the live twin.</p></div>
+  <div class="page-actions"><a class="btn" href="/developers/api">API Catalog</a></div>
+</div>
+{% set V = d.vendors %}
+<div class="g g-4">
+  <div class="panel tight">{{ kpi('Integrations', V|length, '', 'vendors', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Healthy', V|selectattr('status', 'equalto', 'ok')|list|length, '/ ' ~ V|length, 'last poll OK', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Degraded', V|selectattr('status', 'equalto', 'degraded')|list|length, '', 'fault-linked', size='s', cls='t-warn' if V|selectattr('status', 'equalto', 'degraded')|list else '') }}</div>
+  <div class="panel tight">{{ kpi('Avg latency', ((V|sum(attribute='latency_ms')) / (V|length or 1))|num(0), 'ms', 'poll round-trip', size='s') }}</div>
+</div>
+{% for grp in d.groups %}
+<div class="section-title mt">{{ grp }}{% if grp == 'Cloud' %} · AWS → GCP → NHN{% endif %}</div>
+<div class="g g-3">
+  {% set items = V|selectattr('group', 'equalto', grp)|list %}
+  {% for v in items %}
+  <div class="panel">
+    <div class="panel-head"><div><div class="panel-title">{{ v.name }}</div><div class="panel-sub">{{ v.domain }} · {{ v.product }}</div></div>{{ pill(v.status) }}</div>
+    <div class="kv"><span>Protocol</span><span class="small">{{ v.protocol }}</span><span>Endpoint</span><span class="mono xs" style="word-break:break-all">{{ v.endpoint }}</span><span>Poll</span><span>{{ v.poll_s }} s · {{ v.latency_ms }} ms</span></div>
+    <div class="row between mt"><span class="xs faint">last poll {{ v.last_poll|kst }}</span><button class="btn sm" data-probe="{{ v.id }}">Probe</button></div>
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+<div class="overlay" id="probe"><div class="modal" style="width:min(820px,94vw)">
+  <div class="row between mb"><h3 style="margin:0" id="p-t"></h3><button class="btn sm" id="p-x">Close</button></div>
+  <div class="xs mono muted mb" id="p-req"></div><pre class="code" id="p-b" style="max-height:60vh"></pre>
+</div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  document.querySelectorAll("[data-probe]").forEach((b) => b.addEventListener("click", async () => {
+    $("p-t").textContent = "Probing…"; $("p-b").textContent = ""; $("probe").classList.add("on");
+    try { const r = await Grid.getJSON(`/api/vendor/${b.dataset.probe}/sample`); $("p-t").textContent = r.vendor.name; $("p-req").textContent = `${r.request} · ${r.latency_ms} ms · simulated`; $("p-b").textContent = JSON.stringify(r.response, null, 2); }
+    catch (e) { $("p-t").textContent = "Probe failed"; $("p-b").textContent = e.message; }
+  }));
+  $("p-x").addEventListener("click", () => $("probe").classList.remove("on"));
+  $("probe").addEventListener("click", (e) => { if (e.target.id === "probe") $("probe").classList.remove("on"); });
+})();
+</script>
+{% endblock %}

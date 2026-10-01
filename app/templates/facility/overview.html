@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head, chead, icon %}
+{% block content %}
+{% set s = d.site %}
+<div class="page-head">
+  <div><h1>Facility</h1><p>Module M1 · 20 MW critical IT online of a 100 MW campus. Modular blocks, 2N power, N+1 liquid-first cooling. Rows open detail pages.</p></div>
+  <div class="page-actions"><span class="pill {{ d.power_redundancy|level }}">Power {{ d.power_redundancy }}</span><span class="pill {{ d.cooling_redundancy|level }}">Cooling {{ d.cooling_redundancy }}</span></div>
+</div>
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('Critical IT', s.it_mw|num(2), 'MW', s.util_pct ~ '% of 20 MW', live='site.it_mw', fmt='f2', spark='sp-it', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Facility load', s.facility_mw|num(2), 'MW', 'incl. cooling & losses', live='site.facility_mw', fmt='f2', spark='sp-fac', size='s') }}</div>
+  <div class="panel tight">{{ kpi('PUE', s.pue|num(3), '', 'target ' ~ d.target_pue, live='site.pue', fmt='f3', spark='sp-pue', size='s') }}</div>
+  <div class="panel tight">{{ kpi('WUE', s.wue|num(2), 'L/kWh', 'hybrid towers', live='site.wue', fmt='f2', size='s') }}</div>
+  <div class="panel tight">{{ kpi('CUE', s.cue|num(3), 'kgCO₂/kWh', 'KR grid 0.459 t/MWh', live='site.cue', fmt='f3', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Outdoor', s.ambient.dry_c|num(1), '°C', 'wet-bulb <span data-live="site.ambient.wet_c" data-fmt="f1">' ~ (s.ambient.wet_c|num(1)) ~ '</span> °C · free cooling <span data-live="cooling.free_cooling_pct" data-fmt="f1">' ~ d.cooling.free_cooling_pct ~ '</span>%', live='site.ambient.dry_c', fmt='f1', size='s') }}</div>
+</div>
+
+<div class="g g-12 mt">
+  <div class="panel s-8">
+    {{ head('Energy flow', 'KEPCO → transformers → UPS → IT · mechanical · losses (MW, live)', '/facility/energy', 'Energy & ESG') }}
+    <div class="chart l" id="c-sankey"></div>
+  </div>
+  <div class="panel s-4">
+    {{ head('Where the overhead goes', 'PUE − 1 decomposed') }}
+    <div class="col" id="overhead" style="gap:9px"></div>
+    <div class="note mt">Liquid capture 88% → most GPU heat leaves through CDUs and free-cooling towers; chillers only serve the air side (CRAH) and trim in hot weather.</div>
+  </div>
+</div>
+
+<div class="section-title">Halls</div>
+<div class="g g-4">
+  {% for h in d.halls %}
+  <a class="panel" href="/facility/hall/{{ h.id }}">
+    {{ chead(h.name, h.purpose, 'Hall') }}
+    <div class="row between"><div class="kpi-value s tnum"><span data-live="site.halls.{{ h.id }}.it_mw" data-fmt="f2">{{ h.it_mw|num(2) }}</span><span class="unit">/ {{ h.design_mw|num(0) }} MW</span></div>
+      <span class="small muted">{{ h.gpu_racks or h.racks }} racks · {{ h.cooling }}</span></div>
+    <div class="mt-s">{{ bar(h.util_pct, 'steel' if h.id == 'HD' else '', live='site.halls.' ~ h.id ~ '.util_pct', size='lg') }}</div>
+    <div class="row between small mt-s"><span class="muted">inlet air</span><span class="tnum"><span data-live="site.halls.{{ h.id }}.inlet_c" data-fmt="f1">{{ h.inlet_c }}</span> °C · RH {{ h.rh_pct }}%</span></div>
+  </a>
+  {% endfor %}
+</div>
+
+<div class="g g-2 mt">
+  <div class="panel flush">
+    {{ head('Power stages', 'utility · transformers · UPS — click for detail', '/facility/power', 'Power') }}
+    <div class="table-wrap"><table class="t" data-sortable><thead><tr><th>Stage</th><th>Name</th><th>Status</th><th class="right">Load</th><th>Utilization</th><th>Detail</th></tr></thead><tbody>
+      {% for st in d.power_stages %}
+      <tr data-href="/facility/power/{{ st.id }}"><td class="mono">{{ st.id }}</td><td class="small">{{ st.name }}</td><td>{{ pill(st.status) }}</td>
+        <td class="right">{{ st.load_mw|num(2) }} MW</td><td><div class="cell-bar">{{ bar(st.load_pct) }}<span class="xs muted">{{ st.load_pct|num(0) }}%</span></div></td><td class="small muted">{{ st.detail }}</td></tr>
+      {% endfor %}
+    </tbody></table></div>
+  </div>
+  <div class="panel flush">
+    {{ head('Cooling stages', 'chillers · CDUs — click for detail', '/facility/cooling', 'Cooling') }}
+    <div class="table-wrap"><table class="t" data-sortable><thead><tr><th>Stage</th><th>Name</th><th>Status</th><th>Load</th><th>Detail</th></tr></thead><tbody>
+      {% for st in d.cooling_stages %}
+      <tr data-href="/facility/cooling/{{ st.id }}" class="{{ 'crit' if st.level == 'critical' else '' }}"><td class="mono">{{ st.id }}</td><td class="small">{{ st.name }}</td><td>{{ pill(st.status) }}</td>
+        <td><div class="cell-bar">{{ bar(st.load_pct) }}<span class="xs muted">{{ st.load_pct|num(0) }}%</span></div></td><td class="small muted">{{ st.detail }}</td></tr>
+      {% endfor %}
+    </tbody></table></div>
+  </div>
+</div>
+
+<div class="section-title">Modules · 5 × 20 MW</div>
+<div class="g g-5">
+  {% for m in d.modules %}
+  <a class="panel tight" href="/facility/capacity">
+    <div class="row between"><b class="mono">{{ m.id }}</b>{{ pill('ok' if m.status == 'live' else ('warn' if m.status == 'construction' else 'idle'), m.status) }}</div>
+    <div class="kpi-value xs mt-s">{{ m.it_mw|num(0) }}<span class="unit">MW IT</span></div>
+    <div class="xs muted">RFS {{ m.rfs }} · {{ m.label }}</div>
+  </a>
+  {% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C;
+  const sk = K.sankey("c-sankey", {{ d.sankey|tojson }});
+  const sp = {}, specs = [["sp-it", "site_it_mw", "site.it_mw", C.teal], ["sp-fac", "site_facility_mw", "site.facility_mw", C.steel], ["sp-pue", "site_pue", "site.pue", C.sky]];
+  const data = await Promise.all(specs.map(([, m]) => K.series(m, { minutes: 30, points: 200 })));
+  specs.forEach(([id, , path, color], i) => (sp[id] = { c: K.spark(id, data[i], { color }), path }));
+  const drawOverhead = (b, it) => {
+    const items = [["UPS losses", b.ups_loss, C.amber], ["Transformer losses", b.tx_loss, C.steel2], ["Chillers", b.chillers, C.violet], ["Towers & fans", b.towers, C.sky],
+      ["Pumps (CDU / CHW / CW)", b.pumps, C.teal], ["CRAH fans", b.crah, C.steel], ["Lighting & office", b.misc, "#6b7280"]];
+    const tot = items.reduce((a, x) => a + x[1], 0);
+    document.getElementById("overhead").innerHTML = items.map(([n, v, c]) =>
+      `<div class="meter"><span>${n}</span><span class="tnum">${Grid.fmt.f3(v)} MW · ${Grid.fmt.f3(v / it)} PUE</span><div class="bar"><i style="width:${(v / tot * 100).toFixed(1)}%;background:${c}"></i></div></div>`).join("") +
+      `<div class="stat-line"><span>Total overhead</span><span>${Grid.fmt.f3(tot)} MW → PUE ${Grid.fmt.f3(1 + tot / it)}</span></div>`;
+  };
+  drawOverhead({{ d.site.breakdown_mw|tojson }}, {{ d.site.it_mw }});
+  let n = 0;
+  Grid.onLive((L) => {
+    const ms = L.ts * 1000;
+    for (const k in sp) K.push(sp[k].c, 0, ms, Grid.pick(L, sp[k].path), 900);
+    drawOverhead(L.site.breakdown_mw, L.site.it_mw);
+    if (++n % 5 === 0) Grid.getJSON("/api/facility").then((d) => sk.series[0].setData(d.sankey));
+  });
+})();
+</script>
+{% endblock %}

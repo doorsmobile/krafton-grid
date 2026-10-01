@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set e = d.energy %}
+<div class="page-head">
+  <div><h1>Energy & ESG</h1><p>Efficiency (PUE), water (WUE) and carbon (CUE) computed from the live heat balance — not typed in. Energy is billed tick-by-tick at the KEPCO time-of-use band.</p></div>
+  <div class="page-actions"><a class="btn" href="/platform/simulation?run=heatwave">Simulate heat wave</a><a class="btn" href="/cost/dc">DC cost →</a></div>
+</div>
+<div class="g g-3">
+  <div class="panel">{{ head('PUE', 'target ' ~ d.target_pue) }}<div class="gauge" id="g-pue"></div></div>
+  <div class="panel">{{ head('WUE', 'L of water per kWh IT') }}<div class="gauge" id="g-wue"></div></div>
+  <div class="panel">{{ head('CUE', 'kg CO₂ per kWh IT · KR grid ' ~ d.grid_factor ~ ' t/MWh') }}<div class="gauge" id="g-cue"></div></div>
+</div>
+<div class="g g-6 mt">
+  <div class="panel tight">{{ kpi('Energy today', (e.kwh_total_today/1000)|num(1), 'MWh', 'IT ' ~ ((e.kwh_it_today/1000)|num(1)) ~ ' MWh', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Energy this month', (e.kwh_total_month/1000)|num(0), 'MWh', 'peak ' ~ ((e.peak_kw_month/1000)|num(2)) ~ ' MW', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Electricity today', d.today_krw|krw, '', d.rate.band_ko ~ ' · ' ~ d.rate.krw_kwh ~ ' ₩/kWh', live='cost.today_power_krw', fmt='krw', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Water today', (e.water_l_today/1000)|num(1), 'm³', 'hybrid towers · adiabatic above 18 °C', size='s') }}</div>
+  <div class="panel tight">{{ kpi('CO₂ today', e.co2_t_today|num(1), 't', 'location-based · scope 2', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Free cooling', d.free_cooling_pct|num(1), '%', 'plate HX · warm-water loop', live='cooling.free_cooling_pct', fmt='f1', size='s') }}</div>
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-8">{{ head('PUE vs outdoor temperature', '24 h · 1 min resolution') }}<div class="chart l" id="c-pue"></div></div>
+  <div class="panel s-4">{{ head('Time-of-use band', '24 h · ₩/kWh incl. 기후환경·연료비조정') }}<div class="chart l" id="c-tou"></div></div>
+  <div class="panel s-12">{{ head('Energy flow', 'MW · live') }}<div class="chart l" id="c-sankey"></div></div>
+</div>
+<div class="note mt">{{ d.renewable.note }}. Market-based scope-2 would subtract REC-covered MWh; a PPA field is wired for M2's planned solar + BESS.</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C;
+  const pue = K.gauge("g-pue", {{ d.pue }}, { min: 1.0, max: 1.5, decimals: 3, label: "PUE", stops: [[0, C.teal], [0.5, C.teal], [0.62, C.amber], [1, C.crit]] });
+  const wue = K.gauge("g-wue", {{ d.wue }}, { min: 0, max: 1.8, decimals: 2, unit: "L/kWh", label: "WUE" });
+  const cue = K.gauge("g-cue", {{ d.cue }}, { min: 0, max: 0.8, decimals: 3, unit: "kg/kWh", label: "CUE", stops: [[0, C.steel], [1, C.steel]] });
+  const [p, a, r] = await Promise.all([K.series("site_pue_24h", { minutes: 1440 }), K.series("ambient_dry_c_24h", { minutes: 1440 }), K.series("cost_rate_24h", { minutes: 1440 })]);
+  K.line("c-pue", [{ name: "PUE", data: p, color: C.teal, type: "areaspline" }, { name: "Outdoor °C", data: a, yAxis: 1, color: C.amber }], { y2: "°C", decimals: 3, softMin: 1.1,
+    plotLines: [{ value: {{ d.target_pue }}, color: C.teal, dashStyle: "Dash", width: 1 }] });
+  K.line("c-tou", [{ name: "₩/kWh", data: r, color: C.violet, step: "left", type: "area" }], { decimals: 1, min: 100 });
+  const sk = K.sankey("c-sankey", {{ d.sankey|tojson }});
+  let n = 0;
+  Grid.onLive((L) => {
+    pue.series[0].points[0].update(L.site.pue, true, false); wue.series[0].points[0].update(L.site.wue, true, false); cue.series[0].points[0].update(L.site.cue, true, false);
+    if (++n % 5 === 0) Grid.getJSON("/api/facility/energy").then((d) => sk.series[0].setData(d.sankey));
+  });
+})();
+</script>
+{% endblock %}

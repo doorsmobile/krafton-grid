@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, pill, head, sev %}
+{% block content %}
+{% set c = d.counts %}
+<div class="page-head">
+  <div><h1>Alerts &amp; Incidents</h1><p>Rules evaluate every tick; related alerts are correlated into one incident (same scenario, row or device chain) with a root-cause hint, impact and runbook. Alerts clear after 16 s of recovery (hysteresis) so checkpoint bursts do not flap.</p></div>
+  <div class="page-actions"><a class="btn" href="/alerts/integrations">Slack / Webhooks</a><a class="btn" href="/alerts/config">Alert config</a><a class="btn" href="/platform/simulation">Inject fault</a></div>
+</div>
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('Firing', c.firing, '', c.unacked ~ ' unacknowledged', live='alerts.firing', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Critical', c.critical, '', 'page on-call', live='alerts.critical', fmt='int', size='s', cls='t-crit' if c.critical else '') }}</div>
+  <div class="panel tight">{{ kpi('Warning', c.warning, '', 'work queue', live='alerts.warning', fmt='int', size='s', cls='t-warn' if c.warning else '') }}</div>
+  <div class="panel tight">{{ kpi('Open incidents', c.incidents_open, '', d.mtt.incidents ~ ' since boot', live='alerts.incidents_open', fmt='int', size='s') }}</div>
+  <div class="panel tight">{{ kpi('MTTA', d.mtt.mtta_s|dur if d.mtt.mtta_s is not none else '—', '', 'mean time to acknowledge', size='s') }}</div>
+  <div class="panel tight">{{ kpi('MTTR', d.mtt.mttr_s|dur if d.mtt.mttr_s is not none else '—', '', 'mean time to resolve', size='s') }}</div>
+</div>
+
+{% set open = d.incidents|rejectattr('status', 'equalto', 'resolved')|list %}
+{% set sel = (d.incidents|selectattr('id', 'equalto', incident)|first) if incident else (open|first) %}
+<div class="g g-12 mt">
+  <div class="panel s-5 flush">
+    {{ head('Incidents', 'correlated · newest first') }}
+    <div class="list scroll-list">
+      {% for i in d.incidents %}
+      <a class="list-item {{ 'on' if sel and sel.id == i.id else '' }}" href="/alerts?incident={{ i.id }}">
+        <span class="dot {{ i.severity|level if i.status != 'resolved' else 'ok' }}"></span>
+        <div class="li-main"><div class="li-title">{{ i.title }}</div><div class="li-sub">{{ i.id }} · {{ i.domain }} · {{ i.alerts|length }} alerts · opened {{ i.opened|kst }}{% if i.resolved %} · resolved in {{ (i.resolved - i.opened)|dur }}{% endif %}</div></div>
+        {{ pill(i.status) }}
+      </a>
+      {% else %}<div class="empty">No incidents since boot. Start a scenario from <a class="link" href="/platform/simulation">Simulation</a> to see correlation.</div>{% endfor %}
+    </div>
+  </div>
+  <div class="panel s-7">
+    {% if sel %}
+    <div class="panel-head"><div><div class="panel-title row">{{ sev(sel.severity) }} {{ sel.title }}</div><div class="panel-sub">{{ sel.id }} · {{ sel.status }} · opened {{ sel.opened|kst }}{% if sel.scenario %} · scenario <span class="mono">{{ sel.scenario }}</span>{% endif %}</div></div>
+      {% if sel.status != 'resolved' and not sel.acked %}<button class="btn" data-post="/api/incidents/{{ sel.id }}/ack" data-body='{"by":"noc-operator"}' data-done="Incident acknowledged" data-reload>Acknowledge</button>{% elif sel.acked %}<span class="pill info">acked {{ sel.acked|kst }}</span>{% endif %}</div>
+    <div class="kv"><span>Root cause</span><span style="text-align:left">{{ sel.root_cause }}</span>{% if sel.impact %}<span>Impact</span><span style="text-align:left">{{ sel.impact }}</span>{% endif %}</div>
+    <div class="section-title">Timeline</div>
+    <div class="timeline">{% for t in sel.timeline %}<div class="tl-item {{ t.kind }}"><span class="tl-t">{{ t.t|kst }}</span>{{ t.text }}</div>{% endfor %}</div>
+    <div class="mt"><a class="btn sm" href="/observability/mission-control?q={{ ('Explain incident ' ~ sel.id ~ ' and what to do next')|urlencode }}">Ask Mission Control about this incident</a></div>
+    {% else %}
+    <div class="empty">Select an incident.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel mt flush" data-tab-scope>
+  <div class="tabs" data-tabs="view" data-default="active" style="padding:0 16px">
+    <button data-tab="active">Active<span class="count">{{ d.active|length }}</span></button><button data-tab="history">History</button><button data-tab="deliveries">Notifications</button>
+  </div>
+  <div data-panel="active" data-group="view">
+    <div class="table-wrap"><table class="t" data-sortable><thead><tr><th>Severity</th><th>Alert</th><th>Category</th><th class="right">Value</th><th class="right">Threshold</th><th>Entities</th><th>Incident</th><th class="right">Age</th><th></th></tr></thead><tbody>
+      {% for a in d.active %}<tr id="a-{{ a.id }}" class="{{ 'focus' if focus == a.id else '' }} {{ 'muted-row' if a.suppressed else '' }}"><td>{{ sev(a.severity) }}</td>
+        <td><b class="small">{% if a.href %}<a class="link" href="{{ a.href }}">{{ a.name }}</a>{% else %}{{ a.name }}{% endif %}</b><div class="xs muted">{{ a.summary }}</div>{% if a.runbook %}<div class="xs faint">Runbook: {{ a.runbook }}</div>{% endif %}</td>
+        <td><span class="tag">{{ a.category }}</span></td><td class="right mono">{{ a.value }}</td><td class="right mono muted">{{ a.threshold }}</td><td class="xs mono">{{ a.entities[:3]|join(', ') }}</td>
+        <td>{% if a.incident %}<a class="link mono small" href="/alerts?incident={{ a.incident }}">{{ a.incident }}</a>{% endif %}</td><td class="right">{{ (live.ts - a.started)|dur }}</td>
+        <td>{% if a.acked %}<span class="pill info">acked</span>{% else %}<button class="btn sm" data-post="/api/alerts/{{ a.id }}/ack" data-body='{"by":"noc-operator"}' data-done="Acknowledged" data-reload>Ack</button>{% endif %}</td></tr>
+      {% else %}<tr><td colspan="9" class="empty">Nothing firing. All clear.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+  <div data-panel="history" data-group="view">
+    <div class="table-wrap scroll-l"><table class="t" data-sortable><thead><tr><th>Started</th><th>Severity</th><th>Alert</th><th>Category</th><th>State</th><th class="right">Duration</th><th>Incident</th></tr></thead><tbody>
+      {% for a in d.history %}<tr><td class="mono small">{{ a.started|kst }}</td><td>{{ sev(a.severity) }}</td><td class="small"><b>{{ a.name }}</b><div class="xs muted">{{ a.summary }}</div></td><td><span class="tag">{{ a.category }}</span></td><td>{{ pill(a.state) }}</td>
+        <td class="right">{{ ((a.resolved or live.ts) - a.started)|dur }}</td><td>{% if a.incident %}<a class="link mono small" href="/alerts?incident={{ a.incident }}">{{ a.incident }}</a>{% endif %}</td></tr>
+      {% else %}<tr><td colspan="7" class="empty">No alert history yet.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+  <div data-panel="deliveries" data-group="view">
+    <table class="t"><thead><tr><th>Sent</th><th>Target</th><th>Alert</th><th>State</th><th>Status</th></tr></thead><tbody>
+      {% for x in d.deliveries %}<tr data-href="/alerts/integrations#dl-{{ x.id }}"><td class="mono small">{{ x.t|kst }}</td><td class="mono small">{{ x.target }}</td><td class="small">{{ x.alert_name }}</td><td>{{ pill(x.state) }}</td><td><span class="tag">{{ x.status }}</span></td></tr>
+      {% else %}<tr><td colspan="5" class="empty">No notifications sent yet.</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => { const f = document.querySelector("tr.focus"); if (f) f.scrollIntoView({ block: "center", behavior: "smooth" }); })();
+</script>
+{% endblock %}

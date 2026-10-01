@@ -18,37 +18,79 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import config
-from .store import get_store
-from .web.data import NotReady, hub, rm
+from .store import get_store, memory_store
+from .web.data import NotReady, collector_state, hub, rm, runtime as state
 from .web.routers import (auth, core, cost, cloud, developers, facility, gpu_platform, it, main_campus,
                           observability, operations, platform)
 from .web.templating import render
 
 log = logging.getLogger("grid.web")
-state: dict = {"collector": None}
+
+
+def _store_full(collector, mem: dict):
+    """The embedded collector hit Redis maxmemory. In auto mode keep serving from the in-memory store."""
+    if config.GRID_STORE != "auto" or collector.role != "embedded":
+        return None
+    state["store_note"] = (f"Redis is full (used {mem.get('used_mb')} MB of maxmemory {mem.get('max_mb')} MB, "
+                           f"policy {mem.get('policy')}) — serving from the in-memory store; give Redis ≥ 64 MB to use it")
+    log.error(state["store_note"])
+    mem_store = memory_store()
+    rm.bind(mem_store)
+    hub.start(mem_store)
+    return mem_store
+
+
+def _start_embedded(store) -> None:
+    from .collector import Collector
+    state["collector"] = Collector(store, role="embedded", on_store_full=_store_full).start()
+    log.warning("no external collector — running one inside the web process (store: %s)", store.mode)
 
 
 async def _collector_present(store, wait_s: float) -> bool:
     end = time.time() + wait_s
     while time.time() < end:
-        if await asyncio.to_thread(store.lease_holder):
-            return True
+        try:
+            if await asyncio.to_thread(store.lease_holder):
+                return True
+        except Exception:  # noqa: BLE001
+            pass
         await asyncio.sleep(0.25)
     return False
 
 
+async def _watchdog() -> None:
+    """auto mode: whenever no collector holds the lease (rolling deploy, crashed collector) start one here."""
+    while True:
+        await asyncio.sleep(5)
+        try:
+            c = state["collector"]
+            if c is not None and c.status == "failed":
+                log.warning("embedded collector failed (%s) — restarting in 10 s", c.last_error)
+                c.stop()
+                state["collector"] = None
+                await asyncio.sleep(10)
+            elif c is not None and c.status == "stopped":      # lost the lease to another collector
+                state["collector"] = None
+            if state["collector"] is None and not await asyncio.to_thread(rm.store.lease_holder):
+                log.warning("collector lease is free — starting a collector in this process")
+                _start_embedded(rm.store)
+        except Exception as e:  # noqa: BLE001
+            log.warning("watchdog: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     store = get_store()
     rm.bind(store)
     hub.start(store)
     mode = config.GRID_COLLECTOR
-    embed = mode == "embedded" or (mode == "auto" and (store.mode == "memory" or not await _collector_present(store, 3.0)))
-    if embed:
-        from .collector import Collector
-        state["collector"] = Collector(store, role="embedded").start()
-        log.warning("no external collector — running one inside the web process (store: %s)", store.mode)
+    if mode == "embedded" or (mode == "auto" and (store.mode == "memory" or not await _collector_present(store, 3.0))):
+        _start_embedded(store)
+    dog = asyncio.create_task(_watchdog()) if mode == "auto" and store.mode == "redis" else None
     yield
+    if dog:
+        dog.cancel()
     hub.stop()
     if state["collector"]:
         state["collector"].stop()
@@ -87,17 +129,22 @@ for r in (core, main_campus, facility, it, gpu_platform, cloud, observability, o
     app.include_router(r.router)
 
 
-WARMING = """<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="2"><title>Starting · Krafton Grid</title>
+WARMING = """<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="3"><title>Starting · Krafton Grid</title>
 <body style="background:#000;color:#c9ccd3;font:14px/1.6 -apple-system,Inter,sans-serif;display:grid;place-items:center;height:100vh;margin:0">
-<div style="text-align:center"><div style="font-size:18px;color:#fff;font-weight:600">Collector is publishing the first read models…</div>
-<div>{detail} · this page retries every 2 s</div></div></body>"""
+<div style="text-align:center;max-width:720px;padding:0 16px"><div style="font-size:18px;color:#fff;font-weight:600">Collector is publishing the first read models…</div>
+<div>{detail} · this page retries every 3 s</div>
+<div style="margin-top:14px;font-size:12.5px;color:#8b8f98">collector: <b style="color:#c9ccd3">{status}</b> · up {uptime}s{error}</div></div></body>"""
 
 
 @app.exception_handler(NotReady)
 async def not_ready(request: Request, exc: NotReady):
+    cs = collector_state()
     if request.url.path.startswith("/api/") or "text/html" not in request.headers.get("accept", ""):
-        return JSONResponse({"error": "warming up", "detail": str(exc), "status": 503}, status_code=503, headers={"retry-after": "2"})
-    return HTMLResponse(WARMING.format(detail=str(exc)), status_code=503, headers={"retry-after": "2"})
+        return JSONResponse({"error": "warming up", "detail": str(exc), "collector": cs, "status": 503},
+                            status_code=503, headers={"retry-after": "3"})
+    err = f'<br><span style="color:#fbbf24">last error: {cs["last_error"]}</span>' if cs.get("last_error") else ""
+    html = WARMING.format(detail=str(exc), status=cs.get("status"), uptime=round(time.time() - state["started"]), error=err)
+    return HTMLResponse(html, status_code=503, headers={"retry-after": "3"})
 
 
 @app.exception_handler(StarletteHTTPException)

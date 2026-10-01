@@ -193,3 +193,37 @@ cd /Users/logan/Code/grid-claude-v2.0 && ./run_mac.sh          # Redis 확인 �
 - **시계열 쓰기량**: 링을 주기마다 통째로 다시 씀(평균 ~1.6 MB/s, 로컬 Redis엔 부담 없음). 규모가 커지면 새 샘플 위치만 `SETRANGE`로 갱신하거나 RedisTimeSeries/Prometheus remote-write로 바꿀 것.
 - **상세 엔티티 신선도**: 최대 10 s 지연(실시간 KPI는 `live`/SSE로 2 s마다 갱신됨). `ENTITY_EVERY_TICKS`로 조정 가능.
 - **HTTP/2**: 리버스 프록시(Caddy/nginx)로 h2를 쓰면 호스트당 연결 한도 문제 자체가 사라짐 — 공유 배포 시 권장.
+
+---
+
+## 9. Render 배포에서 "Collector is publishing…" 화면이 사라지지 않던 문제 (2026-10-01)
+
+**증상**: https://krafton-grid.onrender.com 에서 로그인 후 대기 화면이 계속 표시됨. `/healthz` → `store: redis`, `collector: null`, 발행 0건.
+
+**원인** (로컬에서 25 MB 제한 Redis로 재현)
+1. Render Key Value(무료 25 MB)에 수집기의 첫 발행(~30 MB, 상주 ~51 MB)이 들어가지 않음 → `OutOfMemoryError: command not allowed when used memory > 'maxmemory'`
+2. 수집기 부팅 스레드가 그 예외로 종료되고 **재시도하지 않음** → 웹은 살아 있지만 데이터는 영원히 없음
+3. (잠재) 무중단 재배포 중 이전 인스턴스가 리스를 들고 있으면, 새 인스턴스는 시작 시 한 번만 확인하고 수집기를 띄우지 않음
+
+**수정**
+| | 내용 |
+|---|---|
+| Redis 사용량 51 MB → **15 MB** | 뷰·엔티티·카탈로그를 zlib 압축 JSON으로 저장(뷰 1.33→0.17 MB, 엔티티 8.4→1.9 MB) · 노드/GPU 단위 gauge 시계열(t2/t3)은 float16(상대오차 0.05 %, 범위 ±30,000 이내일 때만) · 로그 5,000줄 |
+| 실패해도 멈추지 않음 | 수집기 상태·마지막 오류를 보관, 발행 실패 시 지수 백오프로 재시도 |
+| Redis가 꽉 차면 | `GRID_STORE=auto`인 내장 수집기는 **인메모리 저장소로 자동 전환**해 사이트를 계속 제공. `/healthz`의 `store_note`에 사유 표시. 다른 앱의 키는 건드리지 않음 |
+| 수집기 감시 | 웹 프로세스가 5초마다 리스를 확인 — 비어 있으면(재배포 인계·수집기 장애) 즉시 수집기를 기동, 실패한 수집기는 재시작 |
+| 진단 | 대기 화면과 `/healthz`에 `collector_status` · `collector_error` 표시 |
+| 보안 | 저장소 URL 표시 시 비밀번호 마스킹(`redis://user:***@host`) |
+
+**재현 검증**
+| 상황 | 결과 |
+|---|---|
+| 빈 25 MB Redis (noeviction) | Redis 사용 15 MB(최고 17.4 MB) — 정상 발행, 전 페이지 200 |
+| 다른 키 15 MB가 이미 있는 25 MB Redis | 인메모리로 자동 전환 — 전 페이지·명령 정상, 다른 키 보존 |
+| 무중단 재배포(인스턴스 2개 겹침) | 이전 인스턴스 종료 후 3초 안에 새 인스턴스가 수집기 인계, 데이터 지연 2초 이내 |
+
+**Render 설정 권장**
+- 시작 명령: `uvicorn app.main:app --host 0.0.0.0 --port $PORT` (워커 1개)
+- `REDIS_URL`: Key Value 내부 URL. 무료(25 MB)도 동작하지만, 예전 Cursor 앱의 `dcim:aidc100:cursor:*` 키가 공간을 차지하면 인메모리로 전환됨 — Redis를 계속 쓰려면 그 키를 지우거나 ≥ 64 MB 플랜
+- 무료 인스턴스(CPU 0.1)는 첫 부팅에 수십 초 걸릴 수 있음 — 대기 화면이 3초마다 자동 새로고침
+- 공개 URL이므로 `AUTH_ENABLED=1` + `AUTH_PASSWORD` 유지, `ANTHROPIC_API_KEY`는 필요할 때만

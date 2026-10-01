@@ -24,9 +24,9 @@ from ..readmodel import ops as OV
 from ..sim import topology as T
 from ..sim.fleet import G, THROTTLE_C, XID_CODES
 from ..sim.tsdb import TIERS
-from ..store import dumps
+from ..store import dumps, dumpz
 
-LOG_CAP = 20000
+LOG_CAP = 5000            # ~1 MB; LogQL looks back at most 60 min
 
 FAST_VIEWS = {
     "main": OV.main, "campus": OV.campus,
@@ -139,17 +139,17 @@ class Publisher:
                 live = dumps(e.live)
                 strings["live"] = live
                 for name, fn in FAST_VIEWS.items():
-                    strings[f"view:{name}"] = dumps(fn(e))
+                    strings[f"view:{name}"] = dumpz(fn(e))
                 if heavy:
                     for name, fn in HEAVY_VIEWS.items():
-                        strings[f"view:{name}"] = dumps(fn(e))
+                        strings[f"view:{name}"] = dumpz(fn(e))
                 for kind in entity_kinds:
-                    hashes[f"ent:{kind}"] = {k: dumps(v) for k, v in ENTITIES[kind](e).items() if v is not None}
+                    hashes[f"ent:{kind}"] = {k: dumpz(v) for k, v in ENTITIES[kind](e).items() if v is not None}
                 for m in e.tsdb.metrics.values():
                     if full or tick % TIERS[m.tier]["every"] == 0:
                         strings[f"ts:{m.name}"] = m.encode()
                 if not self.last.get("catalog_sent"):          # labels are fixed at registration — publish once
-                    strings["ts:catalog"] = dumps(e.tsdb.catalog(with_labels=True))
+                    strings["ts:catalog"] = dumpz(e.tsdb.catalog(with_labels=True))
                     self.last["catalog_sent"] = True
                 new_logs = e.logs.since(self.log_seq)
                 if new_logs:

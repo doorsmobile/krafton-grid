@@ -8,7 +8,7 @@ from fastapi.responses import RedirectResponse, StreamingResponse
 
 from ... import config
 from .. import nav
-from ..data import hub, rm
+from ..data import collector_state, hub, rm
 
 router = APIRouter()
 
@@ -17,9 +17,11 @@ router = APIRouter()
 def healthz():
     m = rm.meta() or {}
     age = round(time.time() - m["published_at"], 1) if m else None
+    cs = collector_state()
     return {"ok": bool(m) and age is not None and age < 15, "release": config.RELEASE_NAME, "port": config.APP_PORT,
             "store": rm.store.mode, "collector": m.get("owner"), "tick": m.get("tick"), "tick_ms": m.get("tick_ms"),
-            "build_ms": m.get("build_ms"), "data_age_s": age, "sse_clients": len(hub.clients)}
+            "build_ms": m.get("build_ms"), "data_age_s": age, "sse_clients": len(hub.clients),
+            "collector_status": cs.get("status"), "collector_error": cs.get("last_error"), "store_note": cs.get("store_note")}
 
 
 @router.get("/api/live", tags=["core"], summary="Current live snapshot (facility · IT · cloud · cost · alerts) — from Redis")

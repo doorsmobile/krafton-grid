@@ -94,6 +94,12 @@ scripts/        bump_version.py · smoke.py
 tests/          pytest suite (incl. an architecture guard: the web tier must read only the store)
 ```
 
+## Deploying (e.g. Render)
+
+Start command `uvicorn app.main:app --host 0.0.0.0 --port $PORT` (one worker). With `REDIS_URL` set, the web process takes the
+collector lease and publishes into Redis itself (~15 MB of keys, fits a 25 MB plan); if Redis is full it falls back to the
+in-memory store and says so in `/healthz` (`store_note`). Keep `AUTH_ENABLED=1` on public URLs. Details: docs/PERFORMANCE.md §9.
+
 ## Tests
 
 ```bash

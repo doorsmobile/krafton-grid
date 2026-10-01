@@ -39,6 +39,7 @@ class RemoteMetric:
         self.unit, self.kind = row["unit"], row["kind"]
         self.labels: list[dict] = row.get("label_sets") or [{}]
         self._n: int | None = None
+        self._isz = 4
 
     @property
     def width(self) -> int:
@@ -58,23 +59,26 @@ class RemoteMetric:
                 raw = self.store.getranges(key, [(0, h)])[0]
                 if len(raw) < h:
                     raise NotReady(f"series {self.name} not published yet")
-                self._n = TS_HEADER.unpack(raw)[0]
-            n, w = self._n, self.width
+                self._n, _, self._isz, _ = TS_HEADER.unpack(raw)
+            n, w, isz = self._n, self.width, self._isz
+            dtype = "<f2" if isz == 2 else "<f4"
             base = h + 8 * n
-            if cols is None or len(cols) > 24:
-                ranges = [(0, h), (h, base), (base, base + 4 * n * w)]
+            whole = cols is None or len(cols) > 24
+            if whole:
+                ranges = [(0, h), (h, base), (base, base + isz * n * w)]
             else:
-                ranges = [(0, h), (h, base)] + [(base + 4 * n * c, base + 4 * n * (c + 1)) for c in cols]
+                ranges = [(0, h), (h, base)] + [(base + isz * n * c, base + isz * n * (c + 1)) for c in cols]
             parts = self.store.getranges(key, ranges)
-            if len(parts[0]) < h or TS_HEADER.unpack(parts[0])[0] != n:
-                self._n = None                     # ring grew or was replaced between reads — retry
+            if len(parts[0]) < h or TS_HEADER.unpack(parts[0])[0::2] != (n, isz):
+                self._n = None                     # ring grew, was replaced or changed precision — retry
                 continue
             ts = np.frombuffer(parts[1], dtype="<f8")
-            if cols is None or len(cols) > 24:
-                mat = np.frombuffer(parts[2], dtype="<f4").reshape(w, n).T
+            if whole:
+                mat = np.frombuffer(parts[2], dtype=dtype).reshape(w, n).T.astype(np.float32)
                 vals = mat if cols is None else mat[:, cols]
             else:
-                vals = np.stack([np.frombuffer(p, dtype="<f4") for p in parts[2:]], axis=1) if cols else np.zeros((n, 0), "<f4")
+                vals = (np.stack([np.frombuffer(p, dtype=dtype) for p in parts[2:]], axis=1).astype(np.float32)
+                        if cols else np.zeros((n, 0), np.float32))
             return ts, vals
         raise NotReady(f"series {self.name} is being rewritten")
 
@@ -192,7 +196,7 @@ class ReadModel:
         return False
 
     def logs(self, q: str, window_s: float, limit: int) -> dict:
-        raw = self.store.lrange("logs", -20000, -1)
+        raw = self.store.lrange("logs", -5000, -1)
         lines = [json.loads(x) for x in raw]
         now = (self.meta() or {}).get("sim_now") or time.time()
         return query_lines(lines, q, now, window_s, limit)
@@ -302,6 +306,19 @@ class ReadModel:
 
 rm = ReadModel()
 
+# process-local runtime facts the web tier reports (/healthz, warm-up page); set by app.main
+runtime: dict = {"collector": None, "store_note": None, "started": time.time()}
+
+
+def collector_state() -> dict:
+    c = runtime["collector"]
+    if c is not None:
+        info = c.info()
+    else:
+        m = rm.meta() if rm._store is not None else None
+        info = {"status": "external" if m else "none", "owner": (m or {}).get("owner"), "last_error": None}
+    return {**info, "store_note": runtime["store_note"]}
+
 
 # ============================================================================ live fan-out (SSE)
 class LiveHub:
@@ -314,9 +331,9 @@ class LiveHub:
         self.received = 0
 
     def start(self, store) -> None:
-        if self.thread and self.thread.is_alive():
-            return
-        self.stop_evt.clear()
+        """(Re)subscribe to the store's live channel — called again if the app switches stores."""
+        self.stop_evt.set()
+        self.stop_evt = threading.Event()
         self.thread = threading.Thread(target=store.listen, args=("live", self._on_message, self.stop_evt),
                                        name="grid-live-hub", daemon=True)
         self.thread.start()

@@ -73,12 +73,21 @@ class Metric:
         return ts[mask], vals[mask]
 
     def encode(self) -> bytes:
-        """Ring snapshot for the store: header(n, width) · ts float64[n] · values float32 column-major [width × n].
+        """Ring snapshot for the store: header(n, width, itemsize) · ts float64[n] · values column-major [width × n].
 
         Column-major lets a reader GETRANGE exactly one series (e.g. one GPU) without pulling the matrix.
+        Per-node / per-GPU gauges (tiers t2, t3) are bounded physical values (%, °C, W, kW, GB) and are
+        stored as float16 — 0.05 % relative precision, half the bytes. Site-level series, counters and
+        anything outside ±30,000 (e.g. ₩) stay float32.
         """
         ts, vals = self.ordered()
-        return TS_HEADER.pack(len(ts), self.width) + ts.astype("<f8").tobytes() + np.ascontiguousarray(vals.T, dtype="<f4").tobytes()
+        small = self.tier in ("t2", "t3") and self.kind == "gauge"
+        if small and vals.size:
+            finite = vals[np.isfinite(vals)]
+            small = not finite.size or float(np.abs(finite).max()) < 30000
+        dtype = "<f2" if small else "<f4"
+        return (TS_HEADER.pack(len(ts), self.width, 2 if small else 4, 0) + ts.astype("<f8").tobytes()
+                + np.ascontiguousarray(vals.T, dtype=dtype).tobytes())
 
     def latest(self) -> np.ndarray:
         if not self.size:

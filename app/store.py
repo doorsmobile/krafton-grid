@@ -10,13 +10,15 @@ Key layout under ``{REDIS_PREFIX}:`` (default ``dcim:aidc100:claude``):
     view:{name}          JSON   one precomputed read model per page (overview / list pages)
     ent:{kind}           HASH   id → JSON, one precomputed read model per detail page
     ts:catalog           JSON   metric catalog (name, tier, labels, unit …)
-    ts:{metric}          BYTES  ring snapshot: header(n, width) · ts float64[n] · values float32[width × n] column-major
+    ts:{metric}          BYTES  ring snapshot: header(n, width, itemsize) · ts float64[n] · values float16|float32 [width × n] column-major
     logs                 LIST   JSON log lines (capped)
     meta                 JSON   collector heartbeat: tick, tick_ms, publish_ms, published_at, pid …
     lease:collector      STR    owner id of the one collector allowed to write (PX lease)
     cmd / reply:{id}     LIST   command bus: web RPUSHes a command, collector BLPOPs it and RPUSHes the reply
 
-``RedisStore`` is the real thing. ``MemoryStore`` implements the same contract in-process
+View, entity and catalog values are zlib-compressed JSON (they start with byte ``x``); ``live``, ``meta``
+and log lines stay plain JSON. That keeps the whole keyspace around 15 MB, so it fits small managed
+Redis plans (e.g. 25 MB). ``RedisStore`` is the real thing. ``MemoryStore`` implements the same contract in-process
 so the app (and the test-suite) still runs where no Redis is installed — the read path is
 identical either way: the web tier never touches the simulator's objects.
 """
@@ -24,10 +26,12 @@ from __future__ import annotations
 
 import json
 import queue
+import re
 import struct
 import threading
 import time
 import uuid
+import zlib
 from typing import Any, Callable
 
 from . import config
@@ -37,7 +41,7 @@ try:
 except ImportError:  # pragma: no cover
     redis = None
 
-TS_HEADER = struct.Struct("<ii")  # n samples, width columns
+TS_HEADER = struct.Struct("<iiii")  # n samples · width columns · bytes per value (2 = float16, 4 = float32) · reserved
 
 
 class StoreError(RuntimeError):
@@ -52,6 +56,28 @@ def dumps(obj: Any) -> str:
     return json.dumps(obj, default=str, ensure_ascii=False, separators=(",", ":"))
 
 
+def dumpz(obj: Any) -> bytes:
+    """Compressed JSON for read models (views, entities, catalog) — ~6× smaller in Redis."""
+    return zlib.compress(dumps(obj).encode(), 1)
+
+
+def loads(raw):
+    if raw is None:
+        return None
+    if isinstance(raw, bytes) and raw[:1] == b"x":          # zlib stream; JSON never starts with "x"
+        raw = zlib.decompress(raw)
+    return json.loads(raw)
+
+
+def redact(url: str) -> str:
+    """redis://user:secret@host → redis://user:***@host (never show credentials on a page)."""
+    return re.sub(r"(://[^:/@]*:)[^@]*@", r"\1***@", url or "")
+
+
+def is_full_error(e: BaseException) -> bool:
+    return "maxmemory" in str(e) or type(e).__name__ == "OutOfMemoryError"
+
+
 # ============================================================================ redis
 class RedisStore:
     mode = "redis"
@@ -59,7 +85,7 @@ class RedisStore:
     def __init__(self, url: str, prefix: str):
         if redis is None:
             raise StoreError("redis-py not installed")
-        self.url, self.prefix = url, prefix
+        self.url, self.prefix = redact(url), prefix
         self.r = redis.Redis.from_url(url, socket_connect_timeout=0.5, socket_timeout=5, health_check_interval=30)
         self.r.ping()
 
@@ -101,12 +127,15 @@ class RedisStore:
         return self.r.get(self.k(name))
 
     def get_json(self, name: str):
-        raw = self.r.get(self.k(name))
-        return json.loads(raw) if raw else None
+        return loads(self.r.get(self.k(name)))
 
     def hget_json(self, name: str, field: str):
-        raw = self.r.hget(self.k(name), field)
-        return json.loads(raw) if raw else None
+        return loads(self.r.hget(self.k(name), field))
+
+    def memory(self) -> dict:
+        info = self.r.info("memory")
+        return {"used_mb": round(info.get("used_memory", 0) / 2**20, 1), "max_mb": round(info.get("maxmemory", 0) / 2**20, 1),
+                "policy": info.get("maxmemory_policy")}
 
     def hkeys(self, name: str) -> list[str]:
         return [k.decode() for k in self.r.hkeys(self.k(name))]
@@ -237,12 +266,16 @@ class MemoryStore:
         return self._s.get(name)
 
     def get_json(self, name):
-        raw = self._s.get(name)
-        return json.loads(raw) if raw else None
+        return loads(self._s.get(name))
 
     def hget_json(self, name, field):
-        raw = self._h.get(name, {}).get(field)
-        return json.loads(raw) if raw else None
+        return loads(self._h.get(name, {}).get(field))
+
+    def memory(self):
+        with self._lock:
+            used = sum(len(v) for v in self._s.values()) + sum(len(v) for h in self._h.values() for v in h.values()) \
+                + sum(len(v) for l in self._l.values() for v in l)
+        return {"used_mb": round(used / 2**20, 1), "max_mb": 0, "policy": "in-process"}
 
     def hkeys(self, name):
         return list(self._h.get(name, {}))
@@ -341,6 +374,15 @@ def get_store():
                         raise StoreError(f"Redis unavailable at {config.REDIS_URL}: {e}") from e
             if _STORE is None:
                 _STORE = MemoryStore(config.REDIS_PREFIX)
+        return _STORE
+
+
+def memory_store() -> MemoryStore:
+    """Process-wide in-memory store (used when Redis is unavailable or too small)."""
+    global _STORE
+    with _STORE_LOCK:
+        if not isinstance(_STORE, MemoryStore):
+            _STORE = MemoryStore(config.REDIS_PREFIX)
         return _STORE
 
 

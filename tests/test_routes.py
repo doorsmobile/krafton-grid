@@ -81,3 +81,30 @@ def test_series_and_promql_read_from_store(client):
 def test_healthz_reports_the_data_path(client):
     h = client.get("/healthz").json()
     assert h["ok"] and h["store"] == "memory" and h["collector"].startswith("embedded@") and h["data_age_s"] < 15
+
+
+def test_store_full_falls_back_to_memory():
+    """A Redis at maxmemory must not leave the site on the warm-up page forever."""
+    from app.collector import Collector
+    from app.store import MemoryStore
+
+    class FullStore(MemoryStore):
+        def write(self, *a, **k):
+            raise RuntimeError("OOM command not allowed when used memory > 'maxmemory'.")
+
+        def memory(self):
+            return {"used_mb": 25.0, "max_mb": 25.0, "policy": "noeviction"}
+
+    spare = MemoryStore("fallback")
+    c = Collector(FullStore("full"), role="embedded", on_store_full=lambda col, mem: spare).start()
+    assert c.ready.wait(60), c.info()
+    assert c.store is spare and spare.get_json("meta")["owner"] == c.owner and c.last_error is None
+    c.stop()
+
+
+def test_compact_encoding_and_redaction():
+    from app.store import dumpz, loads, redact
+    v = {"a": [1.5] * 500}
+    assert loads(dumpz(v)) == v and len(dumpz(v)) < len(str(v)) / 5
+    assert redact("rediss://red-x:s3cret@host:6379/0") == "rediss://red-x:***@host:6379/0"
+    assert redact("redis://127.0.0.1:6379/0") == "redis://127.0.0.1:6379/0"

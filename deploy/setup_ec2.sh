@@ -82,6 +82,9 @@ SESSION_SECRET=$(gen 48)
 # LETSENCRYPT_EMAIL=
 # LETSENCRYPT_AGREE_TOS=yes
 
+# more simulated history (3 h / 12 h / 7 d, 30k log lines, 7 days of incidents · ~130 MB Redis)
+GRID_DATA_PROFILE=large
+
 # optional
 # ANTHROPIC_API_KEY=            # Claude in Mission Control (otherwise the built-in analyst answers)
 # ALERTS_LIVE_DELIVERY=1        # really send Slack / webhook notifications

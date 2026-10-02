@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ title }} · Krafton Grid</title>
 <link rel="icon" href="/static/brand/mark.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
@@ -26,14 +28,19 @@
 <div class="shell">
   <aside class="sidebar" id="sidebar">
     <a class="brand" href="/">
-      <span class="brand-mark"><svg viewBox="0 0 24 24" fill="#fff"><path d="M5 3h4.2v7.4L15.6 3H21l-7.6 8.4L21.4 21h-5.5l-5.3-7-1.4 1.5V21H5z"/></svg></span>
-      <span><b>Krafton Grid</b><small>{{ RELEASE }}</small></span>
+      <span class="brand-mark"><img src="/static/brand/k.svg" alt="Krafton"></span>
+      <span><b>Krafton Grid</b><small>v{{ VERSION }}</small></span>
     </a>
-    <nav>
+    <div class="nav-tools">
+      <button type="button" class="nav-tool" id="nav-toggle-all" aria-label="Expand or collapse all menu groups">{{ icon('expand') }}<span>펼치기</span></button>
+    </div>
+    <nav id="nav">
       {% for item in NAV %}
         {% if item.children %}
-        <div class="nav-group">
-          <div class="nav-head">{{ icon(item.icon) }}<span>{{ item.label }}</span></div>
+        {% set ns = namespace(on=false) %}
+        {% for c in item.children %}{% if path == c.href or path.startswith(c.href + '/') %}{% set ns.on = true %}{% endif %}{% endfor %}
+        <div class="nav-group {{ 'open has-active' if ns.on else '' }}" data-group="{{ item.label }}">
+          <button type="button" class="nav-head" aria-expanded="{{ 'true' if ns.on else 'false' }}">{{ icon(item.icon) }}<span>{{ item.label }}</span><span class="chev">{{ icon('chevron') }}</span></button>
           <div class="nav-sub">
             {% for c in item.children %}
             {% set on = path == c.href or (c.href != '/' and path.startswith(c.href + '/') and not (item.children|selectattr('href', 'equalto', path)|list)) %}
@@ -46,6 +53,13 @@
         {% endif %}
       {% endfor %}
     </nav>
+    <script>
+      /* menu groups start collapsed; the group of the current page is always open; your choices are remembered */
+      (function () { try { var s = JSON.parse(localStorage.getItem("grid-nav") || "{}");
+        document.querySelectorAll("#nav .nav-group").forEach(function (g) { var k = g.dataset.group;
+          if (!g.classList.contains("has-active") && k in s) { g.classList.toggle("open", !!s[k]); g.querySelector(".nav-head").setAttribute("aria-expanded", s[k] ? "true" : "false"); } });
+      } catch (e) {} })();
+    </script>
     <div class="side-foot">
       <div>100 MW campus · M1 live 20 MW</div>
       <div>{{ AGENT }} build · port {{ PORT }}</div>

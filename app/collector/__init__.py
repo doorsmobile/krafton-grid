@@ -28,6 +28,15 @@ from ..store import get_store, is_full_error, redact
 from . import commands as C
 from .publisher import Publisher
 
+HOST_METRICS = [  # Server Status time series (name, tier, help, unit)
+    ("host_cpu_pct", "t1", "Host CPU utilization", "%"), ("host_mem_pct", "t1", "Host memory used", "%"),
+    ("host_disk_pct", "t1", "Host root disk used", "%"), ("host_load1", "t1", "Host load average (1 min)", ""),
+    ("host_net_rx_mbps", "t1", "Host network receive", "Mb/s"), ("host_net_tx_mbps", "t1", "Host network transmit", "Mb/s"),
+    ("host_disk_read_mbs", "t1", "Host disk read", "MB/s"), ("host_disk_write_mbs", "t1", "Host disk write", "MB/s"),
+    ("store_used_mb", "t1", "Read-model store memory used", "MB"), ("store_ops_per_sec", "t1", "Read-model store operations", "ops/s"),
+    ("host_cpu_pct_24h", "t4", "Host CPU utilization (24 h)", "%"), ("host_mem_pct_24h", "t4", "Host memory used (24 h)", "%"),
+]
+
 log = logging.getLogger("grid.collector")
 
 
@@ -47,6 +56,9 @@ class Collector:
         self.last_error: str | None = None
         self.errors = 0
         self._lock = threading.RLock()     # serialises publishes and store rebinds
+        self.host = None
+        self.host_sample: dict = {}
+        self.store_info: dict = {}
 
     # ---------------------------------------------------------------- lifecycle
     def start(self) -> "Collector":
@@ -74,6 +86,7 @@ class Collector:
             self.eng = Engine()
             self.pub = Publisher(self.eng, self.store, self.owner)
             self.handlers = C.build(self.eng)
+            self._init_host()
             if not self._wait_for_lease():       # only now — a booting collector must not sit on the lease
                 return
             hb = threading.Thread(target=self._heartbeat, name="grid-collector-lease", daemon=True)
@@ -134,6 +147,45 @@ class Collector:
                 if misses * 2 >= config.COLLECTOR_LEASE_S:
                     self.status = "store unreachable"
 
+    # ---------------------------------------------------------------- Server Status
+    def _init_host(self) -> None:
+        from .host import HostMonitor
+        for name, tier, help_, unit in HOST_METRICS:
+            self.eng.tsdb.register(name, tier, help_, unit)
+        self.host = HostMonitor()
+        self.pub.extra["server"] = self._server_view
+        self._sample_host(force=True)
+
+    def _sample_host(self, force: bool = False) -> None:
+        tick = self.eng.tick_n
+        try:
+            h = self.host.sample()
+        except Exception as e:  # noqa: BLE001
+            self._fail(e)
+            return
+        try:
+            si = self.store.server_info(key_stats=force or tick % 15 == 0)
+            if si.get("groups") is None and self.store_info.get("groups"):
+                si["groups"], si["our_keys"] = self.store_info["groups"], self.store_info.get("our_keys")
+            self.store_info = si
+        except Exception as e:  # noqa: BLE001
+            self.store_info = {**self.store_info, "error": redact(str(e))[:200]}
+        self.host_sample = h
+        self.eng.tsdb.record(tick, self.eng.now, {
+            "host_cpu_pct": h["cpu_pct"], "host_mem_pct": h["mem"]["pct"], "host_disk_pct": h["disk"]["pct"],
+            "host_load1": h["load"][0], "host_net_rx_mbps": h["net_rx_mbps"], "host_net_tx_mbps": h["net_tx_mbps"],
+            "host_disk_read_mbs": h["disk_read_mbs"], "host_disk_write_mbs": h["disk_write_mbs"],
+            "store_used_mb": self.store_info.get("used_mb", 0.0), "store_ops_per_sec": self.store_info.get("ops_per_sec") or 0,
+            "host_cpu_pct_24h": h["cpu_pct"], "host_mem_pct_24h": h["mem"]["pct"]}, force=force)
+
+    def _server_view(self) -> dict:
+        m = self.pub.last.get("meta") or {}
+        return {"host": self.host.static if self.host else {}, "now": self.host_sample, "store": self.store_info,
+                "collector": {"owner": self.owner, "role": self.role, "status": self.status, "tick": self.eng.tick_n,
+                              "tick_ms": round(self.eng.tick_ms, 1), "build_ms": m.get("build_ms"), "publish_bytes": m.get("bytes"),
+                              "tick_s": config.SIM_TICK_SEC, "started": self.eng.boot},
+                "release": config.RELEASE_NAME, "sampled_at": time.time()}
+
     def _fail(self, e: BaseException) -> None:
         self.errors += 1
         self.last_error = redact(f"{type(e).__name__}: {e}")[:300]
@@ -186,6 +238,7 @@ class Collector:
         if self.stop_evt.is_set():
             return
         try:
+            self._sample_host()
             with self._lock:
                 self.pub.publish()
             if self.status != "publishing":

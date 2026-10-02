@@ -18,8 +18,8 @@ def test_web_tier_reads_only_the_store():
 
 
 def test_every_page_view_is_published():
-    from app.collector.publisher import ENTITIES, FAST_VIEWS, HEAVY_VIEWS
-    views = set(FAST_VIEWS) | set(HEAVY_VIEWS)
+    from app.collector.publisher import COLLECTOR_VIEWS, ENTITIES, FAST_VIEWS, HEAVY_VIEWS
+    views = set(FAST_VIEWS) | set(HEAVY_VIEWS) | COLLECTOR_VIEWS
     used = set()
     for f in (WEB / "routers").glob("*.py"):
         used |= set(re.findall(r'rm\.view\("([a-z_:]+)"\)', f.read_text()))

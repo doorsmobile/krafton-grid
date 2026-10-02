@@ -74,9 +74,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
   scrollbar-width: thin; scrollbar-color: #26262b transparent;
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 6px 8px 14px; border-bottom: 1px solid var(--line-soft); margin-bottom: 10px; }
-.brand-mark { width: 30px; height: 30px; border-radius: 8px; background: var(--brand); display: grid; place-items: center; flex: none;
-  box-shadow: 0 0 0 1px rgba(255,255,255,.08) inset; }
-.brand-mark svg { width: 17px; height: 17px; }
+.brand-mark { width: 30px; height: 30px; border-radius: 8px; background: #000; display: grid; place-items: center; flex: none;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.12) inset; }
+.brand-mark img { width: 21px; height: auto; display: block; }
 .brand b { display: block; font-size: 14.5px; letter-spacing: -.01em; }
 .brand small { display: block; color: var(--muted); font: 500 10.5px/1.2 var(--mono); letter-spacing: .02em; }
 .nav-group { margin: 2px 0 8px; }
@@ -87,7 +87,21 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .nav-top:hover { background: rgba(255,255,255,.04); }
 .nav-top.active { background: rgba(255,255,255,.07); }
 .nav-head svg, .nav-top svg { width: 15px; height: 15px; opacity: .78; flex: none; }
-.nav-sub { display: flex; flex-direction: column; margin: 1px 0 0 0; }
+.nav-sub { display: none; flex-direction: column; margin: 1px 0 0 0; }
+.nav-group.open .nav-sub { display: flex; }
+.nav-group { margin: 1px 0 2px; }
+.nav-group.open { margin-bottom: 8px; }
+button.nav-head { width: 100%; background: none; border: 0; cursor: pointer; text-align: left; font-family: inherit; }
+button.nav-head:hover { background: rgba(255,255,255,.04); }
+.nav-head .chev { margin-left: auto; display: inline-flex; transition: transform .15s ease; opacity: .55; }
+.nav-head .chev svg { width: 13px; height: 13px; }
+.nav-group.open .nav-head .chev { transform: rotate(90deg); }
+.nav-group.has-active > .nav-head { color: #fff; }
+.nav-tools { display: flex; justify-content: flex-end; padding: 0 4px 6px; }
+.nav-tool { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border-radius: 7px; border: 1px solid var(--line-soft);
+  background: transparent; color: var(--muted); font: 600 11px/1 inherit; cursor: pointer; }
+.nav-tool:hover { color: #fff; border-color: var(--line); }
+.nav-tool svg { width: 12px; height: 12px; }
 .nav-sub a {
   position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 5px 9px 5px 33px; border-radius: 7px; color: rgba(255,255,255,.86); font-weight: 400; font-size: 13px;

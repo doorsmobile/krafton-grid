@@ -3,6 +3,7 @@ import json
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from ... import config
 from .. import agent as A
 from ...sim.logs import SERVICES
 from ...sim.promql import PromQLError, query as promql
@@ -51,7 +52,7 @@ def page_explore(request: Request):
 
 @router.get("/api/observability/events", tags=["observability"], summary="Unified event timeline (alerts, scenarios, operator actions, XIDs)")
 def api_events(minutes: int = 60):
-    return {"events": rm.events(max(1, min(1440, minutes)) * 60)}
+    return {"events": rm.events(max(1, min(config.MAX_WINDOW_MIN, minutes)) * 60)}
 
 
 @router.get("/observability/metrics", include_in_schema=False)
@@ -72,7 +73,7 @@ def api_metrics_query(payload: dict = Body(...)):
         raise HTTPException(400, "query required")
     window = int((payload or {}).get("window_minutes", 15))
     try:
-        return {"query": q, **promql(rm.tsdb, q, window_s=max(1, min(1440, window)) * 60,
+        return {"query": q, **promql(rm.tsdb, q, window_s=max(1, min(config.MAX_WINDOW_MIN, window)) * 60,
                                       max_series=int(payload.get("max_series", 40)))}
     except PromQLError as e:
         raise HTTPException(400, str(e))
@@ -88,7 +89,7 @@ def page_logs(request: Request):
 def api_logs_query(payload: dict = Body(...)):
     q = (payload or {}).get("query", "").strip()
     try:
-        return {"query": q, **rm.logs(q, window_s=max(1, min(60, int(payload.get("window_minutes", 30)))) * 60,
+        return {"query": q, **rm.logs(q, window_s=max(1, min(config.MAX_WINDOW_MIN, int(payload.get("window_minutes", 30)))) * 60,
                                       limit=max(1, min(500, int(payload.get("limit", 200)))))}
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -121,7 +122,6 @@ def api_usage():
 
 @router.get("/observability/mission-control", include_in_schema=False)
 def page_agent(request: Request):
-    from ... import config
     return render(request, "observability/mission_control.html", "Mission Control",
                   {"claude": A.claude_available(), "model": config.MISSION_CONTROL_MODEL, "mode": config.MISSION_CONTROL_MODE,
                    "tools": [{"name": t["name"], "desc": t["description"].split(".")[0]} for t in A.TOOLS],

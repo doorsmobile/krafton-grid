@@ -58,6 +58,7 @@ def asset_v() -> str:
 
 
 env.globals["asset_v"] = asset_v
+env.globals.update(DATA_LARGE=config.DATA_LARGE, MAX_WINDOW_MIN=config.MAX_WINDOW_MIN)
 
 
 def render(request: Request, template: str, title: str, data: dict | None = None, status_code: int = 200, **ctx):

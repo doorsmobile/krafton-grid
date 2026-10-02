@@ -26,7 +26,7 @@ from ..sim.fleet import G, THROTTLE_C, XID_CODES
 from ..sim.tsdb import TIERS
 from ..store import dumps, dumpz
 
-LOG_CAP = 5000            # ~1 MB; LogQL looks back at most 60 min
+LOG_CAP = config.LOG_CAP   # 5,000 lines (~1 MB) · 30,000 with GRID_DATA_PROFILE=large
 
 FAST_VIEWS = {
     "main": OV.main, "campus": OV.campus,
@@ -48,6 +48,8 @@ FAST_VIEWS = {
     **{f"heatmap:{m}": (lambda e, m=m: IV.heatmap(e, m)) for m in IV.HEAT_METRICS},
     "gpu_alloc": lambda e: {"alloc": (e.fleet.gpu_job >= 0).astype(int).tolist()},
 }
+COLLECTOR_VIEWS = {"server"}   # built by the Collector itself (host + store telemetry), see Collector._server_view
+
 HEAVY_VIEWS = {
     "gpu_nodes": IV.gpu_nodes, "workloads": OV.gpu_workloads, "gpu_ops": OV.gpu_ops, "inventory": OV.inventory,
 }
@@ -118,6 +120,7 @@ class Publisher:
         self.log_seq = 0
         self.last: dict = {}
         self.published = 0
+        self.extra: dict = {}                 # collector-level read models (e.g. Server Status): name → () -> dict
 
     def reset(self) -> None:
         """A fresh collector owns the keyspace: drop read models left by a previous run."""
@@ -140,6 +143,8 @@ class Publisher:
                 strings["live"] = live
                 for name, fn in FAST_VIEWS.items():
                     strings[f"view:{name}"] = dumpz(fn(e))
+                for name, fn in self.extra.items():
+                    strings[f"view:{name}"] = dumpz(fn())
                 if heavy:
                     for name, fn in HEAVY_VIEWS.items():
                         strings[f"view:{name}"] = dumpz(fn(e))

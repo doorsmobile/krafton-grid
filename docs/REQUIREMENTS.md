@@ -27,7 +27,7 @@
 | Main | **3열 × 3행** 카드: Facility(Power / Capacity / Cooling), AI(GPU / K8s / Storage), Cloud(AWS / GCP / NHN). 카드 클릭 → 상세 메뉴. **Cost 카드는 Main에서 제외** |
 | Campus Aerial | Main 바로 아래. 캠퍼스 조감도 + **라이브 핫스팟** (Phase 1 ACTIVE · Phase 2–5 · NOC · Labs · Storage · Gate) + build-out 타임라인 |
 | Main 시각화 | 상단 KPI, mini gauge, progress bar, sparkline, 성능 그래프. 일반 추이선은 청록·회색 계열 |
-| Sidebar | 메뉴 그룹 **모두 펼침**. 주 메뉴 굵은 흰색, 서브메뉴 일반 두께 흰색 |
+| Sidebar | 메뉴 그룹 **기본 접힘** — 현재 페이지가 속한 그룹만 펼침, 그룹 머리글 클릭 또는 상단 **펼치기/접기** 버튼으로 전체 토글, 선택 상태 기억. 주 메뉴 굵은 흰색, 서브메뉴 일반 두께 흰색. 로고 아래에는 버전만 표시(`v2.0`) |
 | Surface | 페이지 배경 검정, 카드·그래프 패널 짙은 회색(graphite) |
 | 상태 색상 | Info 파랑 · Warning 황색 · Error/Critical만 빨강 · 정상은 녹색/청록 |
 | Hero / 부제 | 제거 (site-code / capacity subtitle 없음) |
@@ -167,6 +167,7 @@ Operations …… Inventory / Rack View / Alerts / Slack·Webhooks / Alert Confi
 Developers …… API Catalog
 Platform ……… Tech Spec / Vendors & API / Simulation / Requirements
 Cost …………… Summary / DC / Cloud / Budget
+Server Status … 이 서버의 CPU · 메모리 · 디스크 · 네트워크 · 서비스 프로세스 + Redis 사용량 · 기본 정보
 ```
 
 ---
@@ -188,6 +189,8 @@ collector 프로세스 ──write──▶ Redis dcim:aidc100:claude:* ◀─�
 | 발행 주기 | 매 틱(2 s): `live` + 페이지 뷰 44종 + 히트맵 · 3틱: 대형 목록 4종 · 5틱: 상세 엔티티 14종 · 시계열은 티어 주기 |
 | 실시간 | 웹은 Redis `live` 채널을 1회 구독해 SSE로 분배. 브라우저는 탭 간 리더 선출로 **브라우저당 SSE 1개** (HTTP/1.1 호스트당 6연결 한도 고갈 방지) |
 | 단일 작성자 | `lease:collector` 리스를 가진 수집기 1개만 발행 · 웹이 5초마다 리스를 감시해 비면 수집기를 기동(재배포 인계) |
+| 서버 상태 | 수집기가 호스트(psutil)와 Redis(INFO)를 매 틱 수집해 `view:server` + `host_*`/`store_*` 시계열로 발행 → **Server Status** 페이지 |
+| 데이터 프로필 | `GRID_DATA_PROFILE=large`(EC2): 2 s 데이터 3 h · 노드/GPU 12 h · 추세선 7 d · 로그 3만 줄 · 지난 7일 장애 이력 (Redis ~130 MB) |
 | Redis 없음·용량 부족 | 인메모리 스토어 + 웹 내장 수집기로 동작 (읽기 경로 동일) · 뷰/엔티티는 압축 저장해 Redis ~15 MB |
 
 상세 분석·측정: `docs/PERFORMANCE.md`
@@ -293,6 +296,7 @@ app/
 4. Cost 메뉴에 **Budget** 추가 (사내 예산 양식 이미지 해석)
 5. Facility 메뉴에 **Energy & ESG** 추가
 6. **로딩 지연 수정 + 데이터 경로 개편**: 탭별 SSE가 브라우저 호스트당 6연결을 고갈시켜 5 s+ 대기 → 브라우저당 SSE 1개 · 수집기 → Redis → 웹 구조로 분리 · 정적 캐시/폰트 비차단 (`docs/PERFORMANCE.md`)
+8. **사이드바 기본 접힘 + 펼치기 버튼, 버전만 표시, Server Status 메뉴, large 데이터 프로필(EC2), 지난 장애 이력 시드**
 7. **Render 배포 안정화**: Redis 사용량 51 → 15 MB(압축·float16), 수집기 재시도·감시·인계, Redis 용량 부족 시 인메모리 자동 전환, /healthz 진단, URL 비밀번호 마스킹
 
 ---

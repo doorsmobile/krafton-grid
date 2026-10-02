@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import quote
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
@@ -21,7 +21,7 @@ from . import config
 from .store import get_store, memory_store
 from .web.data import NotReady, collector_state, hub, rm, runtime as state
 from .web.routers import (auth, core, cost, cloud, developers, facility, gpu_platform, it, main_campus,
-                          observability, operations, platform)
+                          observability, operations, platform, server)
 from .web.templating import render
 
 log = logging.getLogger("grid.web")
@@ -134,7 +134,14 @@ app.add_middleware(SessionMiddleware, secret_key=config.SESSION_SECRET, same_sit
                    https_only=config.SESSION_HTTPS_ONLY)
 app.mount("/static", StaticFiles(directory=str(config.APP_DIR / "static")), name="static")
 
-for r in (core, main_campus, facility, it, gpu_platform, cloud, observability, operations, developers, platform, cost, auth):
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return FileResponse(config.APP_DIR / "static" / "brand" / "favicon.ico", media_type="image/x-icon",
+                        headers={"cache-control": "public, max-age=86400"})
+
+
+for r in (core, main_campus, facility, it, gpu_platform, cloud, observability, operations, developers, platform, cost, server, auth):
     app.include_router(r.router)
 
 

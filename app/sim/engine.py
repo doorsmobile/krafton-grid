@@ -55,7 +55,7 @@ class Engine:
         self.cost = Cost(now)
         self.alerts = AlertManager()
         self.alerts.base_url = config.PUBLIC_URL
-        self.logs = LogStore(self.rng)
+        self.logs = LogStore(self.rng, cap=max(30000, config.LOG_CAP))
         self.scen = ScenarioRunner()
         self.tsdb = TSDB()
         self.mods = self.scen.modifiers()
@@ -76,6 +76,8 @@ class Engine:
         cost_mod.CURRENT_MW["value"] = self.facility.snapshot["facility_mw"]
         self._seed_energy(now)
         self._backfill(now)
+        self._backfill_logs(now)
+        self._seed_incident_history(now)
         self._emit_event(now, "system", "info", f"{config.RELEASE_NAME} simulator online · {N_GPU:,} GPUs · {N_NODE} nodes")
 
     # ================================================================ metrics
@@ -483,6 +485,77 @@ class Engine:
                 m.ts[: len(full_ts)] = full_ts[-cap:]
                 m.size = min(cap, len(full_ts))
                 m.head = m.size % cap
+
+    def _backfill_logs(self, now: float) -> None:
+        """Pre-fill the log store so Logs / Explore have history at boot (LOG_BACKFILL_S of background lines)."""
+        step = config.SIM_TICK_SEC
+        for t in np.arange(now - config.LOG_BACKFILL_S, now, step):
+            self.logs.background(float(t), self)
+
+    def _seed_incident_history(self, now: float) -> None:
+        """Resolved incidents over the last HISTORY_DAYS — gives Alerts history and MTTA / MTTR from day one.
+
+        Each one replays a catalog scenario: 2–4 correlated alerts from the rule set, acknowledged after
+        1.5–15 min, recovered once the fault cleared (scenario duration + 5–40 min of mitigation).
+        """
+        import uuid
+        from .alerts import SEVERITY_ORDER
+        from .scenarios import SCENARIOS
+        if config.HISTORY_DAYS <= 0:
+            return
+        am, rng = self.alerts, np.random.default_rng(11)
+        by_cat: dict[str, list] = {}
+        for r in am.rules.values():
+            by_cat.setdefault(r.category, []).append(r)
+        incidents, history = [], []
+        t = now - config.HISTORY_DAYS * 86400
+        while True:
+            t += float(rng.uniform(4, 14)) * 3600
+            if t > now - 1800:
+                break
+            sc = SCENARIOS[int(rng.integers(len(SCENARIOS)))]
+            rules = []
+            for cat in [c for c in sc["affects"] if c in by_cat] or ["platform"]:
+                pool = by_cat.get(cat, [])
+                rules += [pool[i] for i in rng.choice(len(pool), size=min(2, len(pool)), replace=False)] if pool else []
+            rules = rules[:4]
+            if not rules:
+                continue
+            opened = t
+            acked = opened + float(rng.uniform(90, 900))
+            resolved = opened + sc["duration_s"] + float(rng.uniform(300, 2400))
+            inc_id = f"INC-{int(opened) % 100000:05d}{len(incidents) % 10}"
+            key = f"scn:{sc['id']}:{int(opened)}"
+            inc = {"id": inc_id, "key": key, "title": sc["name"], "status": "resolved",
+                   "severity": max((r.severity for r in rules), key=SEVERITY_ORDER.get), "opened": opened, "acked": acked,
+                   "resolved": resolved, "root_cause": sc["root_cause"], "alerts": [], "domain": sc["domain"],
+                   "scenario": sc["id"], "impact": sc.get("impact", ""),
+                   "timeline": [{"t": opened, "kind": "opened", "text": f"Incident opened by {rules[0].name}"}]}
+            for k, r in enumerate(rules):
+                started = opened + k * float(rng.uniform(4, 40))
+                cleared = max(started + 60, resolved - float(rng.uniform(0, 120)))
+                value = round(r.threshold * float(rng.uniform(1.05, 1.3)) if r.threshold else float(rng.integers(1, 4)), 3)
+                a = {"id": uuid.uuid4().hex[:10], "fingerprint": r.id, "rule": r.id, "name": r.name, "category": r.category,
+                     "severity": r.severity, "metric": r.metric, "value": value, "threshold": r.threshold, "started": started,
+                     "state": "firing", "acked": False, "ack_by": None, "ack_t": None, "entities": sc.get("faults", [])[:3],
+                     "summary": f"{r.name} — {sc['name']}", "href": None, "runbook": r.runbook, "suppressed": False,
+                     "correlation": key, "root_cause": sc["root_cause"], "incident": inc_id}
+                history.append((started, dict(a)))
+                history.append((cleared, {**a, "state": "resolved", "resolved": cleared, "acked": True,
+                                          "ack_by": "noc-operator", "ack_t": acked}))
+                inc["alerts"].append(a["id"])
+                inc["timeline"].append({"t": started, "kind": "alert", "text": f"{r.severity.upper()} · {r.name} ({value})", "alert": a["id"]})
+                inc["timeline"].append({"t": cleared, "kind": "resolved", "text": f"Recovered · {r.name}"})
+            inc["timeline"].append({"t": acked, "kind": "ack", "text": "Acknowledged by noc-operator"})
+            inc["timeline"].append({"t": resolved, "kind": "closed", "text": "All alerts recovered — incident auto-resolved"})
+            inc["timeline"].sort(key=lambda e: e["t"])
+            incidents.append(inc)
+        with am.lock:
+            for inc in incidents:                         # oldest first → newest ends up at the left
+                am.incidents[inc["id"]] = inc
+                am.incident_order.appendleft(inc["id"])
+            for _, a in sorted(history, key=lambda x: x[0]):
+                am.history.appendleft(a)
 
     def _diurnal_backfill(self, name: str, ts: np.ndarray, cur: np.ndarray, rng) -> np.ndarray:
         hour = ((ts / 3600.0) + 9) % 24

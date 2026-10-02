@@ -3,10 +3,11 @@
 Each metric is a *vector* ring: one column per label set, one row per sample.
 Tiers trade resolution for retention, the way a real TSDB downsamples:
 
-    t1   every tick (2 s)   · 1 h   facility / fleet / hall / rack aggregates
-    t2   every 5 ticks      · 1 h   per node, per device, per volume
-    t3   every 15 ticks     · 1 h   per GPU (5,000 columns)
-    t4   every 30 ticks     · 24 h  site-level trend lines
+                                standard   large (GRID_DATA_PROFILE=large · ~130 MB Redis, ~350 MB collector)
+    t1   every tick (2 s)       1 h        3 h     facility / fleet / hall / rack aggregates
+    t2   every 5 ticks (10 s)   1 h        12 h    per node, per device, per volume
+    t3   every 15 ticks (30 s)  1 h        12 h    per GPU (5,000 columns)
+    t4   every 30 ticks (60 s)  24 h       7 d     site-level trend lines
 """
 from __future__ import annotations
 
@@ -16,13 +17,16 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .. import config
 from ..store import TS_HEADER
 
+_CAPS = {"standard": (1800, 360, 120, 1440), "large": (5400, 4320, 1440, 10080)}[
+    "large" if config.DATA_LARGE else "standard"]
 TIERS = {
-    "t1": {"every": 1, "cap": 1800},
-    "t2": {"every": 5, "cap": 360},
-    "t3": {"every": 15, "cap": 120},
-    "t4": {"every": 30, "cap": 1440},
+    "t1": {"every": 1, "cap": _CAPS[0]},
+    "t2": {"every": 5, "cap": _CAPS[1]},
+    "t3": {"every": 15, "cap": _CAPS[2]},
+    "t4": {"every": 30, "cap": _CAPS[3]},
 }
 
 

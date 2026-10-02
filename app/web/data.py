@@ -196,7 +196,7 @@ class ReadModel:
         return False
 
     def logs(self, q: str, window_s: float, limit: int) -> dict:
-        raw = self.store.lrange("logs", -5000, -1)
+        raw = self.store.lrange("logs", -config.LOG_CAP, -1)
         lines = [json.loads(x) for x in raw]
         now = (self.meta() or {}).get("sim_now") or time.time()
         return query_lines(lines, q, now, window_s, limit)

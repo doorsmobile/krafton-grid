@@ -62,7 +62,7 @@ async def api_stream(request: Request):
 
 @router.get("/api/series/{metric}", tags=["core"], summary="Time series for one metric column (Highcharts [[ms, v]]) — from Redis")
 def api_series(metric: str, col: int = 0, cols: str | None = None, label: str | None = None, value: str | None = None,
-               minutes: float | None = Query(None, ge=1, le=1440), points: int = Query(600, ge=10, le=3000)):
+               minutes: float | None = Query(None, ge=1, le=10080), points: int = Query(600, ge=10, le=3000)):
     tsdb = rm.tsdb
     m = tsdb.metrics.get(metric)
     if m is None:

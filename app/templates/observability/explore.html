@@ -8,7 +8,7 @@
 <div class="panel">
   <div class="form-grid" style="grid-template-columns:80px 1fr auto">
     <label for="mq">Metric</label><input class="input mono" id="mq" value="site_pue" spellcheck="false">
-    <select class="input" id="win">{% for m, lab in [(15,'15 m'),(30,'30 m'),(60,'1 h')] %}<option value="{{ m }}" {{ 'selected' if m == 30 else '' }}>{{ lab }}</option>{% endfor %}</select>
+    <select class="input" id="win">{% for m, lab in [(15,'15 m'),(30,'30 m'),(60,'1 h')] + ([(180,'3 h'),(720,'12 h')] if DATA_LARGE else []) %}<option value="{{ m }}" {{ 'selected' if m == 30 else '' }}>{{ lab }}</option>{% endfor %}</select>
     <label for="lq">Logs</label><input class="input mono" id="lq" value='{level=~"warn|error"}' spellcheck="false">
     <button class="btn teal" id="run">{{ icon('play') }} Correlate</button>
   </div>

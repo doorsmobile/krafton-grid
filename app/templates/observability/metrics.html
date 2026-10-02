@@ -9,7 +9,7 @@
   <div class="row" style="gap:8px;align-items:stretch">
     <textarea class="input mono grow" id="q" rows="2" spellcheck="false" placeholder="e.g. topk(5, rack_temp_max_c)" style="min-height:52px;resize:vertical">{{ q }}</textarea>
     <div class="col" style="gap:6px">
-      <select class="input" id="win">{% for m, lab in [(5,'5 m'),(15,'15 m'),(60,'1 h'),(360,'6 h'),(1440,'24 h')] %}<option value="{{ m }}" {{ 'selected' if m == 15 else '' }}>{{ lab }}</option>{% endfor %}</select>
+      <select class="input" id="win">{% for m, lab in [(5,'5 m'),(15,'15 m'),(60,'1 h'),(360,'6 h'),(1440,'24 h'),(10080,'7 d')] if m <= MAX_WINDOW_MIN %}<option value="{{ m }}" {{ 'selected' if m == 15 else '' }}>{{ lab }}</option>{% endfor %}</select>
       <button class="btn teal" id="run">{{ icon('play') }} Run</button>
     </div>
   </div>

@@ -66,6 +66,7 @@ Operations …… Inventory / Rack View / Alerts / Slack·Webhooks / Alert Confi
 Developers …… API Catalog
 Platform ……… Tech Spec / Vendors & API / Simulation / Requirements
 Cost …………… Summary / DC / Cloud / Budget
+Server Status … this host (CPU · memory · disk · network · processes) + Redis
 ```
 
 Every page has a JSON twin — see **Developers → API Catalog** or `GET /api/catalog`; OpenAPI at `/docs`.

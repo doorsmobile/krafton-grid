@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% from "partials/ui.html" import kpi, bar, pill, head %}
+{% block content %}
+{% set h, n, s, c = d.host, d.now, d.store, d.collector %}
+<div class="page-head">
+  <div><h1>Server Status</h1>
+    <p><b class="mono">{{ h.hostname }}</b>{% if h.instance_type %} · {{ h.instance_type }} · {{ h.az }}{% endif %} · {{ h.os }} · {{ h.cpus }} vCPU · {{ h.mem_total_gb }} GB —
+      sampled by the collector every {{ c.tick_s|num(0) }} s and read back from {{ 'Redis' if s.kind == 'redis' else 'the in-memory store' }}.</p></div>
+  <div class="page-actions"><span class="xs muted" id="sv-age">updated just now</span><a class="btn" href="/api/server">JSON</a></div>
+</div>
+
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('CPU', ('<span data-sv="now.cpu_pct" data-f="f1">' ~ (n.cpu_pct|num(1)) ~ '</span>')|safe, '%', h.cpus ~ ' vCPU · ' ~ (h.cores or '?') ~ ' cores', size='s') }}{{ bar(n.cpu_pct, warn=70, crit=90) }}</div>
+  <div class="panel tight">{{ kpi('Memory', ('<span data-sv="now.mem.pct" data-f="f1">' ~ (n.mem.pct|num(1)) ~ '</span>')|safe, '%', '<span data-sv="now.mem.used_gb" data-f="f1">' ~ (n.mem.used_gb|num(1)) ~ '</span> / ' ~ (n.mem.total_gb|num(1)) ~ ' GB', size='s') }}{{ bar(n.mem.pct, warn=75, crit=90) }}</div>
+  <div class="panel tight">{{ kpi('Disk ' ~ n.disk.path, ('<span data-sv="now.disk.pct" data-f="f1">' ~ (n.disk.pct|num(1)) ~ '</span>')|safe, '%', (n.disk.used_gb|num(1)) ~ ' / ' ~ (n.disk.total_gb|num(1)) ~ ' GB · free ' ~ (n.disk.free_gb|num(1)) ~ ' GB', size='s') }}{{ bar(n.disk.pct, warn=75, crit=90) }}</div>
+  <div class="panel tight">{{ kpi('Load average', ('<span data-sv="now.load.0" data-f="f2">' ~ (n.load[0]|num(2)) ~ '</span>')|safe, '', '5 min ' ~ n.load[1] ~ ' · 15 min ' ~ n.load[2], size='s') }}</div>
+  <div class="panel tight">{{ kpi('Network', ('<span data-sv="now.net_rx_mbps" data-f="f2">' ~ (n.net_rx_mbps|num(2)) ~ '</span>')|safe, 'Mb/s in', 'out <span data-sv="now.net_tx_mbps" data-f="f2">' ~ (n.net_tx_mbps|num(2)) ~ '</span> Mb/s', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Uptime', n.uptime_s|dur, '', 'swap ' ~ (n.swap.used_gb|num(2)) ~ ' / ' ~ (n.swap.total_gb|num(1)) ~ ' GB', size='s') }}</div>
+</div>
+
+<div class="g g-12 mt">
+  <div class="panel s-8">
+    <div class="panel-head"><div><div class="panel-title">CPU · memory · disk</div><div class="panel-sub">% of host · real samples since the collector started</div></div>
+      <div class="seg" id="sv-range"><button class="on" data-r="1h">1 h</button><button data-r="24h">24 h</button></div></div>
+    <div class="chart m" id="c-host"></div>
+  </div>
+  <div class="panel s-4">
+    {{ head('CPU per core', '%') }}
+    <div id="sv-cores">{% for v in n.cpu_per_core %}<div class="meter mb-s"><span class="xs mono">cpu{{ loop.index0 }}</span><span class="xs mono">{{ v|num(0) }}%</span>{{ bar(v, warn=70, crit=90) }}</div>{% endfor %}</div>
+  </div>
+</div>
+
+<div class="g g-12 mt">
+  <div class="panel s-5">{{ head('Network & disk I/O', 'Mb/s in · out · MB/s read · write') }}<div class="chart m" id="c-io"></div></div>
+  <div class="panel s-7 flush">
+    {{ head('Service processes', 'collector · web · Redis · nginx on this host') }}
+    <div class="table-wrap"><table class="t"><thead><tr><th>Role</th><th class="right">PID</th><th>User</th><th class="right">CPU</th><th class="right">Memory</th><th class="right">Threads</th><th class="right">Running</th></tr></thead>
+      <tbody id="sv-procs">{% for p in n.processes %}<tr><td><span class="tag {{ 'teal' if p.role in ('collector', 'web') else '' }}">{{ p.role }}</span></td><td class="right mono">{{ p.pid }}</td><td class="small muted">{{ p.user }}</td>
+        <td class="right">{{ p.cpu_pct|num(1) }}%</td><td class="right">{{ p.rss_mb|num(0) }} MB</td><td class="right">{{ p.threads }}</td><td class="right">{{ (d.sampled_at - p.started)|dur }}</td></tr>
+      {% else %}<tr><td colspan="7" class="empty">No service processes found.</td></tr>{% endfor %}</tbody></table></div>
+  </div>
+</div>
+
+<div class="g g-2 mt">
+  <div class="panel">
+    {{ head('Host') }}
+    <div class="kv">
+      <span>Hostname</span><span class="mono">{{ h.hostname }}</span>
+      {% if h.instance_id %}<span>EC2 instance</span><span class="mono">{{ h.instance_id }} · {{ h.instance_type }}</span>
+      <span>Region · AZ</span><span>{{ h.region }} · {{ h.az }}</span>
+      <span>Public · private IP</span><span class="mono">{{ h.public_ip or '—' }} · {{ h.private_ip or '—' }}</span>
+      <span>AMI</span><span class="mono">{{ h.ami }}</span>{% endif %}
+      <span>OS · kernel</span><span>{{ h.os }} · {{ h.kernel }}</span>
+      <span>Architecture</span><span>{{ h.arch }} · {{ h.cpus }} vCPU ({{ h.cores or '?' }} cores) · {{ h.mem_total_gb }} GB</span>
+      <span>Python</span><span>{{ h.python }}</span>
+      <span>Booted</span><span>{{ h.boot_time|kst('%Y-%m-%d %H:%M') }} KST</span>
+    </div>
+  </div>
+  <div class="panel">
+    {{ head('Collector', 'the process that writes every read model') }}
+    <div class="kv">
+      <span>Owner</span><span class="mono xs">{{ c.owner }}</span>
+      <span>Role · status</span><span>{{ c.role }} · {{ pill('ok' if c.status == 'publishing' else 'warning', c.status) }}</span>
+      <span>Tick</span><span><span data-sv="collector.tick" data-f="int">{{ '{:,}'.format(c.tick) }}</span> · every {{ c.tick_s }} s</span>
+      <span>Simulation · build</span><span><span data-sv="collector.tick_ms" data-f="f1">{{ c.tick_ms }}</span> ms · <span data-sv="collector.build_ms" data-f="f1">{{ c.build_ms }}</span> ms per tick</span>
+      <span>Last publish</span><span>{{ ((c.publish_bytes or 0) / 1e6)|num(2) }} MB</span>
+      <span>Running since</span><span>{{ c.started|kst('%Y-%m-%d %H:%M') }} KST · {{ d.release }}</span>
+    </div>
+  </div>
+</div>
+
+<div class="section-title mt">Redis · read-model store</div>
+{% set mx = s.max_mb or 0 %}
+<div class="g g-6">
+  <div class="panel tight">{{ kpi('Memory used', ('<span data-sv="store.used_mb" data-f="f1">' ~ (s.used_mb|num(1)) ~ '</span>')|safe, 'MB', ('of ' ~ (mx|num(0)) ~ ' MB maxmemory') if mx else 'no maxmemory', size='s') }}{% if mx %}{{ bar(s.used_mb / mx * 100, warn=75, crit=90) }}{% endif %}</div>
+  <div class="panel tight">{{ kpi('Peak', s.peak_mb|num(1) if s.peak_mb is not none else '—', 'MB', 'RSS ' ~ (s.rss_mb|num(1) if s.rss_mb is not none else '—') ~ ' MB', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Keys', '{:,}'.format(s.total_keys or 0), '', (s.our_keys or 0) ~ ' under ' ~ s.prefix ~ ':*', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Operations', ('<span data-sv="store.ops_per_sec" data-f="int">' ~ (s.ops_per_sec if s.ops_per_sec is not none else '—') ~ '</span>')|safe, 'ops/s', (s.commands_total and ('{:,}'.format(s.commands_total) ~ ' commands total')) or '', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Clients', s.clients if s.clients is not none else '—', '', 'connected', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Hit rate', s.hit_rate if s.hit_rate is not none else '—', '%' if s.hit_rate is not none else '', 'keyspace hits / lookups', size='s') }}</div>
+</div>
+<div class="g g-12 mt">
+  <div class="panel s-7">{{ head('Store memory & operations', 'MB · ops/s · 60 min') }}<div class="chart m" id="c-redis"></div></div>
+  <div class="panel s-5 flush">
+    {{ head('What is stored', 'key groups under ' ~ s.prefix ~ ':*') }}
+    {% set tot = (s.groups or [])|sum(attribute='bytes') or 1 %}
+    <table class="t"><thead><tr><th>Group</th><th class="right">Keys</th><th class="right">Size</th><th style="width:34%">Share</th></tr></thead><tbody>
+      {% for g in s.groups or [] %}<tr><td class="mono small">{{ g.group }}</td><td class="right">{{ '{:,}'.format(g['keys']) }}</td><td class="right">{{ (g.bytes / 1048576)|num(2) }} MB</td>
+        <td><div class="cell-bar">{{ bar(g.bytes / tot * 100) }}<span class="xs muted">{{ (g.bytes / tot * 100)|num(0) }}%</span></div></td></tr>
+      {% else %}<tr><td colspan="4" class="empty">Collecting key statistics…</td></tr>{% endfor %}
+    </tbody></table>
+    <div class="xs muted" style="padding:8px 16px 12px">live · view = page read models · ent = detail entities · ts = time series · logs · meta = heartbeat · lease = collector lock</div>
+  </div>
+</div>
+<div class="panel mt">
+  {{ head('Redis server') }}
+  <div class="g g-2" style="gap:24px">
+    <div class="kv">
+      <span>Version · mode</span><span>{{ s.version }} · {{ s.mode }} · {{ s.role }}</span>
+      <span>Endpoint</span><span class="mono xs">{{ s.url }}</span>
+      <span>Uptime</span><span>{{ s.uptime_s|dur if s.uptime_s else '—' }}</span>
+      <span>maxmemory · policy</span><span>{{ (mx|num(0) ~ ' MB') if mx else 'unlimited' }} · {{ s.policy }}</span>
+      <span>Fragmentation</span><span>{{ s.fragmentation if s.fragmentation is not none else '—' }}</span>
+    </div>
+    <div class="kv">
+      <span>Persistence</span><span>{% if s.persistence %}RDB {{ 'on' if s.persistence.rdb else ('off' if s.persistence.rdb is sameas false else 'n/a') }} · AOF {{ 'on' if s.persistence.aof else 'off' }}{% else %}—{% endif %}</span>
+      <span>Evicted · expired keys</span><span>{{ s.evicted_keys if s.evicted_keys is not none else '—' }} · {{ s.expired_keys if s.expired_keys is not none else '—' }}</span>
+      <span>Network in · out</span><span>{{ s.net_in_kbps if s.net_in_kbps is not none else '—' }} · {{ s.net_out_kbps if s.net_out_kbps is not none else '—' }} kB/s</span>
+      <span>Host OS</span><span>{{ s.os or '—' }}</span>
+      {% if s.error %}<span>Last error</span><span class="t-warn small">{{ s.error }}</span>{% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const K = GridCharts, C = K.C, $ = (id) => document.getElementById(id);
+  let range = "1h", host, io, redis, last = {{ d.sampled_at }};
+  async function drawHost() {
+    const ms = range === "24h" ? ["host_cpu_pct_24h", "host_mem_pct_24h"] : ["host_cpu_pct", "host_mem_pct", "host_disk_pct"];
+    const data = await Promise.all(ms.map((m) => K.series(m, { minutes: range === "24h" ? 1440 : 60 })));
+    if (host) host.destroy();
+    host = K.line("c-host", [{ name: "CPU %", data: data[0], color: C.teal, type: "areaspline" }, { name: "memory %", data: data[1], color: C.steel },
+      ...(data[2] ? [{ name: "disk %", data: data[2], color: C.violet }] : [])], { min: 0, max: 100, unit: "%", decimals: 1 });
+  }
+  document.querySelectorAll("#sv-range button").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll("#sv-range button").forEach((x) => x.classList.toggle("on", x === b)); range = b.dataset.r; drawHost();
+  }));
+  const [rx, tx, rd, wr, mem, ops] = await Promise.all(["host_net_rx_mbps", "host_net_tx_mbps", "host_disk_read_mbs", "host_disk_write_mbs", "store_used_mb", "store_ops_per_sec"]
+    .map((m) => K.series(m, { minutes: 60 })));
+  io = K.line("c-io", [{ name: "net in Mb/s", data: rx, color: C.teal }, { name: "net out Mb/s", data: tx, color: C.steel },
+    { name: "disk read MB/s", data: rd, color: C.violet, yAxis: 1, visible: false }, { name: "disk write MB/s", data: wr, color: C.amber, yAxis: 1 }], { min: 0, y2: "MB/s", decimals: 2 });
+  redis = K.line("c-redis", [{ name: "memory MB", data: mem, color: C.teal, type: "areaspline" }, { name: "ops/s", data: ops, color: C.steel, yAxis: 1 }], { min: 0, y2: "ops/s", decimals: 1 });
+  drawHost();
+
+  const fmt = (v, f) => (Grid.fmt[f] || Grid.fmt.raw)(v);
+  async function refresh() {
+    if (document.hidden) return;
+    let d; try { d = await Grid.getJSON("/api/server"); } catch (e) { return; }
+    last = d.sampled_at;
+    document.querySelectorAll("[data-sv]").forEach((el) => { const v = Grid.pick(d, el.dataset.sv); if (v !== undefined && v !== null) el.textContent = fmt(v, el.dataset.f); });
+    $("sv-cores").innerHTML = d.now.cpu_per_core.map((v, i) => `<div class="meter mb-s"><span class="xs mono">cpu${i}</span><span class="xs mono">${Math.round(v)}%</span><div class="bar"><i class="${Grid.barClass(v, 70, 90)}" style="width:${v}%"></i></div></div>`).join("");
+    $("sv-procs").innerHTML = d.now.processes.map((p) => `<tr><td><span class="tag ${["collector", "web"].includes(p.role) ? "teal" : ""}">${p.role}</span></td><td class="right mono">${p.pid}</td><td class="small muted">${Grid.esc(p.user)}</td>
+      <td class="right">${Grid.fmt.f1(p.cpu_pct)}%</td><td class="right">${Grid.fmt.int(p.rss_mb)} MB</td><td class="right">${p.threads}</td><td class="right">${Grid.fmt.dur(d.sampled_at - p.started)}</td></tr>`).join("");
+    const t = d.sampled_at * 1000, n = d.now;
+    if (range === "1h" && host) { K.push(host, 0, t, n.cpu_pct); K.push(host, 1, t, n.mem.pct); K.push(host, 2, t, n.disk.pct); }
+    K.push(io, 0, t, n.net_rx_mbps); K.push(io, 1, t, n.net_tx_mbps); K.push(io, 2, t, n.disk_read_mbs); K.push(io, 3, t, n.disk_write_mbs);
+    K.push(redis, 0, t, d.store.used_mb); K.push(redis, 1, t, d.store.ops_per_sec || 0);
+  }
+  setInterval(refresh, 5000);
+  setInterval(() => { $("sv-age").textContent = "updated " + Grid.fmt.dur(Date.now() / 1000 - last) + " ago"; }, 1000);
+})();
+</script>
+{% endblock %}

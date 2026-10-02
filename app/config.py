@@ -37,6 +37,14 @@ REDIS_PREFIX = os.getenv("REDIS_PREFIX", "dcim:aidc100:claude")
 GRID_STORE = os.getenv("GRID_STORE", "auto").lower()
 GRID_COLLECTOR = os.getenv("GRID_COLLECTOR", "auto").lower()
 COLLECTOR_LEASE_S = float(os.getenv("COLLECTOR_LEASE_S", "10"))
+# How much simulated history to keep and pre-fill. "large" is a moderate step up for a roomy host (EC2):
+# 3 h of 2 s data, 12 h per node / per GPU, 7 days of trend lines, 30k log lines, 7 days of resolved incidents.
+GRID_DATA_PROFILE = os.getenv("GRID_DATA_PROFILE", "standard").lower()   # standard | large
+DATA_LARGE = GRID_DATA_PROFILE == "large"
+LOG_CAP = int(os.getenv("LOG_CAP", "30000" if DATA_LARGE else "5000"))
+HISTORY_DAYS = float(os.getenv("HISTORY_DAYS", "7" if DATA_LARGE else "2"))
+LOG_BACKFILL_S = float(os.getenv("LOG_BACKFILL_S", str(3 * 3600 if DATA_LARGE else 1800)))
+MAX_WINDOW_MIN = 10080 if DATA_LARGE else 1440      # longest query window the UI / APIs offer
 ENTITY_EVERY_TICKS = int(os.getenv("ENTITY_EVERY_TICKS", "5"))   # detail-page read models (10 s at 2 s ticks)
 HEAVY_EVERY_TICKS = int(os.getenv("HEAVY_EVERY_TICKS", "3"))     # large list views (inventory, node tables …)
 

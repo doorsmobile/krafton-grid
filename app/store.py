@@ -132,6 +132,44 @@ class RedisStore:
     def hget_json(self, name: str, field: str):
         return loads(self.r.hget(self.k(name), field))
 
+    def _rdb_enabled(self):
+        try:
+            return bool(self.r.config_get("save").get("save"))
+        except Exception:  # noqa: BLE001 — CONFIG is disabled on managed Redis
+            return None
+
+    def server_info(self, key_stats: bool = False) -> dict:
+        """Redis server facts for Server Status (+ per-group key counts/bytes for our prefix when key_stats)."""
+        i = self.r.info()
+        hits, misses = i.get("keyspace_hits", 0), i.get("keyspace_misses", 0)
+        out = {"kind": "redis", "url": self.url, "prefix": self.prefix, "version": i.get("redis_version"),
+               "mode": i.get("redis_mode"), "role": i.get("role"), "os": i.get("os"), "uptime_s": i.get("uptime_in_seconds"),
+               "clients": i.get("connected_clients"), "ops_per_sec": i.get("instantaneous_ops_per_sec"),
+               "used_mb": round(i.get("used_memory", 0) / 2**20, 2), "peak_mb": round(i.get("used_memory_peak", 0) / 2**20, 2),
+               "rss_mb": round(i.get("used_memory_rss", 0) / 2**20, 2),
+               "max_mb": round(i.get("maxmemory", 0) / 2**20, 1), "policy": i.get("maxmemory_policy"),
+               "fragmentation": i.get("mem_fragmentation_ratio"), "total_keys": self.r.dbsize(),
+               "hit_rate": round(hits / (hits + misses) * 100, 1) if hits + misses else None,
+               "evicted_keys": i.get("evicted_keys"), "expired_keys": i.get("expired_keys"),
+               "net_in_kbps": i.get("instantaneous_input_kbps"), "net_out_kbps": i.get("instantaneous_output_kbps"),
+               "commands_total": i.get("total_commands_processed"),
+               "persistence": {"rdb": self._rdb_enabled(), "aof": i.get("aof_enabled") == 1}}
+        if key_stats:
+            groups: dict[str, dict] = {}
+            keys = list(self.r.scan_iter(match=f"{self.prefix}:*", count=1000))
+            p = self.r.pipeline(transaction=False)
+            for k in keys:
+                p.memory_usage(k)
+            for k, b in zip(keys, p.execute()):
+                name = k.decode()[len(self.prefix) + 1:]
+                g = name.split(":", 1)[0] if ":" in name else name
+                e = groups.setdefault(g, {"group": g, "keys": 0, "bytes": 0})
+                e["keys"] += 1
+                e["bytes"] += b or 0
+            out["groups"] = sorted(groups.values(), key=lambda x: -x["bytes"])
+            out["our_keys"] = len(keys)
+        return out
+
     def memory(self) -> dict:
         info = self.r.info("memory")
         return {"used_mb": round(info.get("used_memory", 0) / 2**20, 1), "max_mb": round(info.get("maxmemory", 0) / 2**20, 1),
@@ -270,6 +308,25 @@ class MemoryStore:
 
     def hget_json(self, name, field):
         return loads(self._h.get(name, {}).get(field))
+
+    def server_info(self, key_stats: bool = False):
+        with self._lock:
+            groups: dict[str, dict] = {}
+            for d, kind in ((self._s, "string"), (self._h, "hash"), (self._l, "list")):
+                for name, v in d.items():
+                    g = name.split(":", 1)[0] if ":" in name else name
+                    size = len(v) if kind == "string" else sum(len(x) for x in (v.values() if kind == "hash" else v))
+                    e = groups.setdefault(g, {"group": g, "keys": 0, "bytes": 0})
+                    e["keys"] += 1
+                    e["bytes"] += size
+        used = sum(g["bytes"] for g in groups.values())
+        return {"kind": "memory", "url": self.url, "prefix": self.prefix, "version": "in-process", "mode": "embedded",
+                "role": "master", "used_mb": round(used / 2**20, 2), "max_mb": 0, "policy": "in-process",
+                "peak_mb": None, "rss_mb": None, "uptime_s": None, "clients": None, "ops_per_sec": None, "os": None,
+                "fragmentation": None, "hit_rate": None, "evicted_keys": None, "expired_keys": None, "net_in_kbps": None,
+                "net_out_kbps": None, "commands_total": None, "persistence": None,
+                "total_keys": sum(g["keys"] for g in groups.values()), "our_keys": sum(g["keys"] for g in groups.values()),
+                "groups": sorted(groups.values(), key=lambda x: -x["bytes"]) if key_stats else None}
 
     def memory(self):
         with self._lock:

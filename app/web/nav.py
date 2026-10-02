@@ -61,6 +61,8 @@ NAV = [
         {"label": "Cloud", "href": "/cost/cloud", "api": ["/api/cost/cloud"], "desc": "AWS · GCP · NHN"},
         {"label": "Budget", "href": "/cost/budget", "api": ["/api/cost/budget", "/api/cost/budget/requests"], "desc": "예산 대비 실적 · 이관/증액/환입 신청", "new": True},
     ]},
+    {"label": "Server Status", "href": "/server", "icon": "server", "api": ["/api/server", "/api/meta"],
+     "desc": "This host: CPU · memory · disk · Redis"},
 ]
 
 DETAIL_PAGES = [

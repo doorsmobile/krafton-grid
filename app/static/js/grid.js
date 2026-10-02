@@ -247,6 +247,18 @@
   function clock() { const el = $("#clock"); if (el) el.textContent = fmt.kst(Date.now() / 1000) + " KST"; }
   function initNav() {
     const h = $("#hamburger"); if (h) h.addEventListener("click", () => document.body.classList.toggle("nav-open"));
+    const groups = $$("#nav .nav-group"), all = $("#nav-toggle-all");
+    const save = () => { try { const s = {}; groups.forEach((g) => (s[g.dataset.group] = g.classList.contains("open"))); localStorage.setItem("grid-nav", JSON.stringify(s)); } catch (e) { } };
+    const setOpen = (g, on) => { g.classList.toggle("open", on); g.querySelector(".nav-head").setAttribute("aria-expanded", on ? "true" : "false"); };
+    const syncAll = () => { if (!all) return; const open = groups.every((g) => g.classList.contains("open"));
+      all.querySelector("span").textContent = open ? "접기" : "펼치기"; all.dataset.mode = open ? "collapse" : "expand"; };
+    groups.forEach((g) => g.querySelector(".nav-head").addEventListener("click", () => { setOpen(g, !g.classList.contains("open")); save(); syncAll(); }));
+    if (all) all.addEventListener("click", () => {
+      const expand = all.dataset.mode !== "collapse";
+      groups.forEach((g) => setOpen(g, expand || g.classList.contains("has-active")));
+      save(); syncAll();
+    });
+    syncAll();
     const active = $(".nav-sub a.active, .nav-top.active"); if (active) active.scrollIntoView({ block: "center" });
   }
   function md(text) {

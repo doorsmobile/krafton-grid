@@ -10,7 +10,8 @@
 #   HTTPS         :  in /etc/krafton-grid/grid.env set
 #                      DOMAIN=krafton-grid.com            DOMAIN_ALIASES=www.krafton-grid.com
 #                      LETSENCRYPT_EMAIL=you@example.com   LETSENCRYPT_AGREE_TOS=yes   (you accept the Let's Encrypt terms)
-#                    then re-run this script: it obtains the certificate (webroot), switches nginx to HTTPS,
+#                    then re-run this script: it obtains the certificate (webroot), switches nginx to HTTPS only
+#                    (port 80 keeps answering renewal challenges and drops everything else; access by IP is refused),
 #                    sets PUBLIC_URL=https://DOMAIN and leaves renewal to certbot's timer.
 set -euo pipefail
 
@@ -121,8 +122,10 @@ LE_EMAIL="$(envval LETSENCRYPT_EMAIL)"; LE_TOS="$(envval LETSENCRYPT_AGREE_TOS)"
 install -d -m 755 /var/www/certbot
 site=/etc/nginx/sites-available/krafton-grid
 use_http() { install -m 644 "$APP_DIR/deploy/nginx/krafton-grid.conf" "$site"; }
-use_https() {
-  sed -e "s/__DOMAIN__/$DOMAIN/g" -e "s/__ALIASES__/${ALIASES//,/ }/g" "$APP_DIR/deploy/nginx/krafton-grid-https.conf" >"$site"
+use_https() {   # HTTPS only: :80 answers renewal challenges and drops everything else; IP / unknown names are refused
+  local src="$APP_DIR/deploy/nginx/krafton-grid-https.conf"
+  if [[ -z ${ALIASES//[ ,]/} ]]; then sed '/# BEGIN ALIASES/,/# END ALIASES/d' "$src"; else cat "$src"; fi \
+    | sed -e "s/__DOMAIN__/$DOMAIN/g" -e "s/__ALIASES__/${ALIASES//,/ }/g" >"$site"
   chmod 644 "$site"
 }
 apply_nginx() { ln -sf "$site" /etc/nginx/sites-enabled/krafton-grid; rm -f /etc/nginx/sites-enabled/default; nginx -t -q; systemctl enable -q nginx; systemctl reload nginx || systemctl restart nginx; }

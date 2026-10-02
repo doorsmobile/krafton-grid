@@ -57,6 +57,8 @@ AUTH_ENABLED = _flag("AUTH_ENABLED", "0")
 AUTH_USERNAME = os.getenv("AUTH_USERNAME", "krafton")
 AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "grid-claude-dev-session-secret")
+# Behind HTTPS the login cookie is only ever sent over TLS.
+SESSION_HTTPS_ONLY = _flag("SESSION_HTTPS_ONLY", "1" if PUBLIC_URL.startswith("https://") else "0")
 
 # Mission Control uses Claude when a key is present; otherwise the built-in analyst answers.
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")

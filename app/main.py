@@ -130,7 +130,8 @@ async def gate_and_time(request: Request, call_next):
     return resp
 
 
-app.add_middleware(SessionMiddleware, secret_key=config.SESSION_SECRET, same_site="lax", max_age=12 * 3600)
+app.add_middleware(SessionMiddleware, secret_key=config.SESSION_SECRET, same_site="lax", max_age=12 * 3600,
+                   https_only=config.SESSION_HTTPS_ONLY)
 app.mount("/static", StaticFiles(directory=str(config.APP_DIR / "static")), name="static")
 
 for r in (core, main_campus, facility, it, gpu_platform, cloud, observability, operations, developers, platform, cost, auth):

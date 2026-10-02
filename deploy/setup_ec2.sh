@@ -5,7 +5,13 @@
 #                    && sudo bash /opt/krafton-grid/deploy/setup_ec2.sh
 #   update        :  sudo bash /opt/krafton-grid/deploy/setup_ec2.sh
 #
-#   data path     :  collector (systemd) ──▶ Redis 127.0.0.1:6379 ──▶ web (systemd, 127.0.0.1:8003) ──▶ nginx :80
+#   data path     :  collector (systemd) ──▶ Redis 127.0.0.1:6379 ──▶ web (systemd, 127.0.0.1:8003) ──▶ nginx :80/:443
+#
+#   HTTPS         :  in /etc/krafton-grid/grid.env set
+#                      DOMAIN=krafton-grid.com            DOMAIN_ALIASES=www.krafton-grid.com
+#                      LETSENCRYPT_EMAIL=you@example.com   LETSENCRYPT_AGREE_TOS=yes   (you accept the Let's Encrypt terms)
+#                    then re-run this script: it obtains the certificate (webroot), switches nginx to HTTPS,
+#                    sets PUBLIC_URL=https://DOMAIN and leaves renewal to certbot's timer.
 set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/doorsmobile/krafton-grid.git}"
@@ -69,6 +75,12 @@ AUTH_USERNAME=krafton
 AUTH_PASSWORD=$(gen 16)
 SESSION_SECRET=$(gen 48)
 
+# HTTPS (see the header of deploy/setup_ec2.sh)
+# DOMAIN=krafton-grid.com
+# DOMAIN_ALIASES=www.krafton-grid.com
+# LETSENCRYPT_EMAIL=
+# LETSENCRYPT_AGREE_TOS=yes
+
 # optional
 # ANTHROPIC_API_KEY=            # Claude in Mission Control (otherwise the built-in analyst answers)
 # ALERTS_LIVE_DELIVERY=1        # really send Slack / webhook notifications
@@ -103,22 +115,63 @@ systemctl restart krafton-grid-collector
 systemctl restart krafton-grid-web
 
 say "8/8 nginx"
-install -m 644 "$APP_DIR/deploy/nginx/krafton-grid.conf" /etc/nginx/sites-available/krafton-grid
-ln -sf /etc/nginx/sites-available/krafton-grid /etc/nginx/sites-enabled/krafton-grid
-rm -f /etc/nginx/sites-enabled/default
-nginx -t -q
-systemctl enable -q nginx
-systemctl reload nginx || systemctl restart nginx
+envval() { grep -E "^$1=" "$ENV_FILE" | tail -1 | cut -d= -f2- | tr -d '"' || true; }
+DOMAIN="$(envval DOMAIN)"; ALIASES="$(envval DOMAIN_ALIASES)"
+LE_EMAIL="$(envval LETSENCRYPT_EMAIL)"; LE_TOS="$(envval LETSENCRYPT_AGREE_TOS)"
+install -d -m 755 /var/www/certbot
+site=/etc/nginx/sites-available/krafton-grid
+use_http() { install -m 644 "$APP_DIR/deploy/nginx/krafton-grid.conf" "$site"; }
+use_https() {
+  sed -e "s/__DOMAIN__/$DOMAIN/g" -e "s/__ALIASES__/${ALIASES//,/ }/g" "$APP_DIR/deploy/nginx/krafton-grid-https.conf" >"$site"
+  chmod 644 "$site"
+}
+apply_nginx() { ln -sf "$site" /etc/nginx/sites-enabled/krafton-grid; rm -f /etc/nginx/sites-enabled/default; nginx -t -q; systemctl enable -q nginx; systemctl reload nginx || systemctl restart nginx; }
+
+if [[ -z $DOMAIN ]]; then
+  use_http; apply_nginx
+  say "    HTTP only (set DOMAIN in $ENV_FILE for HTTPS)"
+else
+  cert=/etc/letsencrypt/live/$DOMAIN/fullchain.pem
+  if [[ ! -f $cert ]]; then
+    use_http; apply_nginx                                 # serves /.well-known/acme-challenge/ on :80
+    if [[ $LE_TOS != "yes" ]]; then
+      say "    DOMAIN=$DOMAIN but LETSENCRYPT_AGREE_TOS is not 'yes' — staying on HTTP"
+    else
+      apt-get install -y -qq certbot >/dev/null
+      names=(-d "$DOMAIN")
+      for a in ${ALIASES//,/ }; do
+        if getent ahostsv4 "$a" | grep -q "${public_ip:-^}"; then names+=(-d "$a"); else say "    skipping $a (DNS does not point here yet)"; fi
+      done
+      if ! getent ahostsv4 "$DOMAIN" | grep -q "${public_ip:-^}"; then
+        say "    WARNING: $DOMAIN does not resolve to ${public_ip:-this host} yet — certificate request will likely fail"
+      fi
+      mail=(--register-unsafely-without-email); [[ -n $LE_EMAIL ]] && mail=(-m "$LE_EMAIL" --no-eff-email)
+      say "    requesting certificate for ${names[*]//-d /}"
+      certbot certonly --webroot -w /var/www/certbot "${names[@]}" --non-interactive --agree-tos "${mail[@]}" \
+        --deploy-hook "systemctl reload nginx" || say "    certificate request failed — staying on HTTP (see /var/log/letsencrypt/letsencrypt.log)"
+    fi
+  fi
+  if [[ -f $cert ]]; then
+    use_https; apply_nginx
+    if [[ "$(envval PUBLIC_URL)" != "https://$DOMAIN" ]]; then
+      sed -i "s#^PUBLIC_URL=.*#PUBLIC_URL=https://$DOMAIN#" "$ENV_FILE"
+      grep -q '^PUBLIC_URL=' "$ENV_FILE" || echo "PUBLIC_URL=https://$DOMAIN" >>"$ENV_FILE"
+      systemctl restart krafton-grid-collector krafton-grid-web     # secure cookies + https links
+    fi
+    say "    HTTPS on https://$DOMAIN (certificate renews automatically: systemctl list-timers certbot.timer)"
+  fi
+fi
 
 say "waiting for data to flow …"
 for _ in $(seq 1 90); do
-  if curl -s http://127.0.0.1/healthz | grep -q '"ok":true'; then
-    say "healthy:"; curl -s http://127.0.0.1/healthz; echo
-    say "open http://${public_ip:-<public-ip>}/  (login: krafton · password: sudo grep ^AUTH_PASSWORD $ENV_FILE)"
+  if curl -s http://127.0.0.1:8003/healthz | grep -q '"ok":true'; then
+    say "healthy:"; curl -s http://127.0.0.1:8003/healthz; echo
+    url="http://${public_ip:-<public-ip>}/"; [[ -n ${DOMAIN:-} && -f /etc/letsencrypt/live/${DOMAIN}/fullchain.pem ]] && url="https://$DOMAIN/"
+    say "open $url  (login: krafton · password: sudo grep ^AUTH_PASSWORD $ENV_FILE)"
     exit 0
   fi
   sleep 2
 done
 say "not healthy yet — check: journalctl -u krafton-grid-collector -u krafton-grid-web -n 80"
-curl -s http://127.0.0.1/healthz || true
+curl -s http://127.0.0.1:8003/healthz || true
 exit 1

@@ -7,7 +7,7 @@
 </div>
 <div class="g g-5">
   <div class="panel tight">{{ kpi('Metrics', d.metrics, '', 'families in the catalog', size='s') }}</div>
-  <div class="panel tight">{{ kpi('Active series', '{:,}'.format(d.series), '', 'incl. 5,000 per-GPU columns', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Active series', '{:,}'.format(d.series), '', 'incl. ' ~ '{:,}'.format(TOPO.gpus) ~ ' per-GPU columns', size='s') }}</div>
   <div class="panel tight">{{ kpi('Log lines', '{:,}'.format(d.log_lines), '', d.log_services|length ~ ' services · ring buffer', size='s') }}</div>
   <div class="panel tight">{{ kpi('Events', d.events, '', 'alerts · scenarios · operator actions', size='s') }}</div>
   <div class="panel tight">{{ kpi('Pipeline tick', d.tick_ms|num(1), 'ms', 'tick #<span data-live="tick" data-fmt="int">' ~ d.tick ~ '</span> · every 2 s', live='tick_ms', fmt='f1', size='s') }}</div>
@@ -17,7 +17,7 @@
   {{ head('Telemetry pipeline', 'sources → collection → storage → consumers') }}
   <svg class="diagram" viewBox="0 0 1000 210" id="pipe">
     {% set cols = [
-      (20, 'Sources', ['DCGM exporter · 5,000 GPUs', 'Slurm / CubeFlow', 'UFM · Arista EOS', 'IBM Storage Scale', 'BMS / EPMS · Modbus', 'AWS · GCP · NHN APIs']),
+      (20, 'Sources', ['DCGM exporter · ' ~ '{:,}'.format(TOPO.gpus) ~ ' GPUs', 'Slurm / CubeFlow', 'UFM · Arista EOS', 'IBM Storage Scale', 'BMS / EPMS · Modbus', 'AWS · GCP · NHN APIs']),
       (290, 'Collection', ['Prometheus remote-write', 'OTLP collector', 'SNMP / gNMI poller', 'Modbus TCP gateway']),
       (540, 'Grid store', ['TSDB · 4 tiers · 24 h', 'Log store · LogQL', 'Event bus · SSE', 'Redis mirror']),
       (780, 'Consumers', ['Dashboards · alerts', 'Telemetry relay', 'Mission Control (Claude)', 'API · /api/*'])] %}

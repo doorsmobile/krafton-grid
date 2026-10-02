@@ -70,7 +70,7 @@ def test_commands_round_trip_through_the_store(client):
 
 
 def test_series_and_promql_read_from_store(client):
-    s = client.get("/api/series/gpu_temp_c?col=4321&minutes=30").json()   # one column of a 5,000-wide ring
+    s = client.get("/api/series/gpu_temp_c?col=6321&minutes=30").json()   # one column of a 6,912-wide ring
     assert s["points"] and s["labels"]["gpu"].endswith("-g1")
     q = client.post("/api/observability/metrics/query", json={"query": "topk(3, rack_temp_max_c)", "window_minutes": 5}).json()
     assert len(q["result"]) == 3

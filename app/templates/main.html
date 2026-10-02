@@ -84,7 +84,7 @@
 <div class="section-title">AI</div>
 <div class="g g-3">
   <a class="panel" href="/gpu-fleet">
-    {{ chead('GPU · NVIDIA B300', '5,000 GPUs · Slurm + CubeFlow', 'GPU Monitoring') }}
+    {{ chead('GPU · NVIDIA B300', '{:,}'.format(TOPO.gpus) ~ ' GPUs · ' ~ TOPO.sus ~ ' SU × ' ~ TOPO.su_nodes ~ ' nodes · Slurm + CubeFlow', 'GPU Monitoring') }}
     <div class="row between top">
       {{ kpi('Fleet utilization', L.gpu.avg_util|num(1), '%', 'SM <span data-live="gpu.avg_sm" data-fmt="f1">' ~ (L.gpu.avg_sm|num(1)) ~ '</span>% · max <span data-live="gpu.max_temp" data-fmt="f1">' ~ (L.gpu.max_temp|num(1)) ~ '</span> °C', live='gpu.avg_util', fmt='f1') }}
       <div class="right small"><div class="muted">throttling</div><b class="tnum" data-live="gpu.thermal_throttle">{{ L.gpu.thermal_throttle }}</b><div class="muted mt-s">failed</div><b class="tnum" data-live="gpu.failed">{{ L.gpu.failed }}</b></div>
@@ -110,9 +110,9 @@
   </a>
 
   <a class="panel" href="/storage">
-    {{ chead('Storage · IBM Storage Scale', 'hot NVMe · capacity QLC · archive', 'Storage') }}
+    {{ chead('Storage · IBM Storage Scale', 'per SU ' ~ (TOPO.hot_pb|num(0)) ~ ' PB hot NVMe + ' ~ (TOPO.cold_pb|num(0)) ~ ' PB cold HDD', 'Storage') }}
     <div class="row between top">
-      {{ kpi('Used', L.storage.used_pb|num(1), '/ 100 PB', 'read <span data-live="storage.read_gbs" data-fmt="int">' ~ (L.storage.read_gbs|num) ~ '</span> · write <span data-live="storage.write_gbs" data-fmt="int">' ~ (L.storage.write_gbs|num) ~ '</span> GB/s', live='storage.used_pb', fmt='f1') }}
+      {{ kpi('Used', L.storage.used_pb|num(1), '/ ' ~ (TOPO.storage_pb|num(0)) ~ ' PB', 'read <span data-live="storage.read_gbs" data-fmt="int">' ~ (L.storage.read_gbs|num) ~ '</span> · write <span data-live="storage.write_gbs" data-fmt="int">' ~ (L.storage.write_gbs|num) ~ '</span> GB/s', live='storage.used_pb', fmt='f1') }}
       <div class="right small"><div class="muted">hot latency</div><b class="tnum"><span data-live="storage.latency_ms" data-fmt="f2">{{ L.storage.latency_ms|num(2) }}</span> ms</b></div>
     </div>
     <div class="mt-s">{{ bar(L.storage.used_pct, live='storage.used_pct', warn=85, crit=95, size='lg') }}</div>
@@ -166,8 +166,8 @@
     <div class="chart l" id="c-pue"></div>
   </div>
   <div class="panel s-8">
-    {{ head('Rack power & thermals', '40 GPU racks · color = hottest GPU · click a rack', '/rack-view', 'Rack View') }}
-    <div class="floor-racks" id="rack-strip" style="grid-template-columns:repeat(20,minmax(0,1fr));gap:5px">
+    {{ head('Rack power & thermals', TOPO.racks ~ ' GPU racks · ' ~ TOPO.sus ~ ' SU (Hall A top, Hall B bottom) · color = hottest GPU · click a rack', '/rack-view', 'Rack View') }}
+    <div class="floor-racks" id="rack-strip" style="grid-template-columns:repeat({{ TOPO.racks // 2 }},minmax(0,1fr));gap:5px">
       {% for r in d.racks %}
       <a class="rack-tile" href="/rack/{{ r.id }}" data-rack="{{ r.id }}" style="min-height:62px;padding:6px 6px 8px">
         <b style="font-size:10.5px">{{ r.id }}</b><span class="rk" data-f="kw">{{ r.kw|num(0) }}</span><span class="rk" data-f="t">{{ r.temp_max|num(0) }}°</span><span class="heat"></span>

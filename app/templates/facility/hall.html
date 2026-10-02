@@ -18,7 +18,7 @@
   <div class="floor">
     {% for row in d.rows %}
     <div class="floor-row">
-      <div class="floor-row-label"><b>Row {{ row.id }}</b>{% if row.cdu %}<a href="/facility/cooling/{{ row.cdu }}"><span class="cdu-chip {{ row.cdu_status }}">{{ row.cdu }}</span></a><span class="xs">{{ row.supply_c|num(1) }} °C</span>{% else %}<span class="xs">{{ row.kind }}</span>{% endif %}</div>
+      <div class="floor-row-label"><b>Row {{ row.id }}{% if row.su %} · {{ row.su }}{% endif %}</b>{% if row.cdu %}<a href="/facility/cooling/{{ row.cdu }}"><span class="cdu-chip {{ row.cdu_status }}">{{ row.cdu }}</span></a><span class="xs">{{ row.supply_c|num(1) }} °C</span>{% else %}<span class="xs">{{ row.kind }}</span>{% endif %}</div>
       <div class="floor-racks">
         {% for r in row.racks %}
         {% set cls = 'reserved' if r.kind == 'reserved' else ('crit' if r.failed or r.throttle else ('warn' if (r.temp_max or 0) > 80 else '')) %}

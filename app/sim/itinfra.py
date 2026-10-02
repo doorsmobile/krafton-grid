@@ -19,29 +19,28 @@ from . import topology as T
 class Storage:
     def __init__(self, rng: np.random.Generator):
         self.rng = rng
+        nsd = T.SU_COUNT * T.NSD_PER_BLOCK
         self.clusters = {
-            "ss-hot": {"used_pb": 11.84, "read_gbs": 0.0, "write_gbs": 0.0, "iops_k": 0.0, "latency_ms": 0.3,
-                       "queue": 2.0, "meta_kops": 0.0, "health": "healthy", "nsd_up": 16, "nsd_total": 16},
-            "ss-capacity": {"used_pb": 47.2, "read_gbs": 0.0, "write_gbs": 0.0, "iops_k": 0.0, "latency_ms": 1.2,
-                            "queue": 3.0, "meta_kops": 0.0, "health": "healthy", "nsd_up": 24, "nsd_total": 24},
-            "ss-archive": {"used_pb": 13.46, "read_gbs": 0.0, "write_gbs": 0.0, "iops_k": 0.0, "latency_ms": 9.0,
-                           "queue": 1.0, "meta_kops": 0.0, "health": "healthy", "nsd_up": 6, "nsd_total": 6},
+            "ss-hot": {"used_pb": 84.6, "read_gbs": 0.0, "write_gbs": 0.0, "iops_k": 0.0, "latency_ms": 0.3,
+                       "queue": 2.0, "meta_kops": 0.0, "health": "healthy", "nsd_up": nsd, "nsd_total": nsd},
+            "ss-cold": {"used_pb": 211.8, "read_gbs": 0.0, "write_gbs": 0.0, "iops_k": 0.0, "latency_ms": 4.5,
+                        "queue": 3.0, "meta_kops": 0.0, "health": "healthy", "nsd_up": nsd, "nsd_total": nsd},
         }
         self.volumes = []
-        quotas = {"llm-pretrain": (4200, 18000), "pubg-ally": (1100, 5200), "inzoi-smartzoi": (900, 4800),
-                  "speech-voice": (420, 2600), "vision-gen": (780, 6400), "inference-prod": (260, 1200),
-                  "research-sandbox": (320, 2400)}
-        for pid, (hot_q, cap_q) in quotas.items():
+        quotas = {"llm-pretrain": (32000, 96000), "pubg-ally": (8000, 28000), "inzoi-smartzoi": (6800, 24000),
+                  "speech-voice": (3200, 14000), "vision-gen": (6000, 36000), "inference-prod": (2000, 6000),
+                  "research-sandbox": (2400, 12000)}
+        for pid, (hot_q, cold_q) in quotas.items():
             self.volumes.append({"id": f"hot-{pid}", "cluster": "ss-hot", "path": f"/gpfs/hot/{pid}", "project": pid,
                                  "quota_tb": hot_q, "used_tb": round(hot_q * rng.uniform(0.55, 0.9), 1)})
-            self.volumes.append({"id": f"cap-{pid}", "cluster": "ss-capacity", "path": f"/gpfs/capacity/{pid}",
-                                 "project": pid, "quota_tb": cap_q, "used_tb": round(cap_q * rng.uniform(0.5, 0.85), 1)})
-        for vid, cl, path, q in [("hot-datasets", "ss-hot", "/gpfs/hot/datasets", 2400),
-                                 ("hot-scratch", "ss-hot", "/gpfs/hot/scratch", 900),
-                                 ("cap-datasets-raw", "ss-capacity", "/gpfs/capacity/datasets-raw", 12000),
-                                 ("cap-home", "ss-capacity", "/gpfs/capacity/home", 800),
-                                 ("arc-ckpt", "ss-archive", "/archive/checkpoints", 11000),
-                                 ("arc-telemetry", "ss-archive", "/archive/telemetry", 3500)]:
+            self.volumes.append({"id": f"cold-{pid}", "cluster": "ss-cold", "path": f"/gpfs/cold/{pid}",
+                                 "project": pid, "quota_tb": cold_q, "used_tb": round(cold_q * rng.uniform(0.5, 0.85), 1)})
+        for vid, cl, path, q in [("hot-datasets", "ss-hot", "/gpfs/hot/datasets", 18000),
+                                 ("hot-scratch", "ss-hot", "/gpfs/hot/scratch", 7000),
+                                 ("cold-datasets-raw", "ss-cold", "/gpfs/cold/datasets-raw", 60000),
+                                 ("cold-home", "ss-cold", "/gpfs/cold/home", 4000),
+                                 ("cold-ckpt", "ss-cold", "/gpfs/cold/checkpoints", 50000),
+                                 ("cold-telemetry", "ss-cold", "/gpfs/cold/telemetry", 12000)]:
             self.volumes.append({"id": vid, "cluster": cl, "path": path, "project": "shared", "quota_tb": q,
                                  "used_tb": round(q * rng.uniform(0.6, 0.85), 1)})
         for v in self.volumes:
@@ -53,15 +52,15 @@ class Storage:
         rng = self.rng
         if storm and (now % 60) < 22:  # aligned checkpoint boundaries every minute
             write_gbs += storm * 380.0
-        hot, cap, arc = self.clusters["ss-hot"], self.clusters["ss-capacity"], self.clusters["ss-archive"]
+        # hot takes training reads and synchronous checkpoints; cold takes raw-dataset staging and the
+        # ILM migration of older checkpoints off hot (policy-driven, steady)
         demand = {"ss-hot": (read_gbs * 0.82, write_gbs * 0.92),
-                  "ss-capacity": (read_gbs * 0.18 + 6.0, write_gbs * 0.08 + 4.0),
-                  "ss-archive": (1.2 + rng.uniform(0, 1.5), 3.0 + rng.uniform(0, 4.0))}
+                  "ss-cold": (read_gbs * 0.18 + 24.0 + rng.uniform(0, 8), write_gbs * 0.08 + 40.0 + rng.uniform(0, 12))}
         for cid, (r, w) in demand.items():
             c = self.clusters[cid]
             spec = T.STORAGE_BY_ID[cid]
             degraded = f"NSD-{cid}" in faults
-            c["nsd_up"] = c["nsd_total"] - (2 if degraded else 0)
+            c["nsd_up"] = c["nsd_total"] - (T.NSD_PER_BLOCK if degraded else 0)   # one building block offline
             cap_r = spec["peak_read_gbs"] * c["nsd_up"] / c["nsd_total"]
             cap_w = spec["peak_write_gbs"] * c["nsd_up"] / c["nsd_total"]
             r_eff = min(r, cap_r * 0.97)
@@ -69,12 +68,12 @@ class Storage:
             c["read_gbs"] += (r_eff * rng.uniform(0.95, 1.05) - c["read_gbs"]) * 0.5
             c["write_gbs"] += (w_eff * rng.uniform(0.95, 1.05) - c["write_gbs"]) * 0.6
             util = max(c["read_gbs"] / cap_r, c["write_gbs"] / cap_w)
-            base = {"ss-hot": 0.28, "ss-capacity": 1.1, "ss-archive": 8.5}[cid]
+            base = {"ss-hot": 0.28, "ss-cold": 4.2}[cid]
             c["latency_ms"] = round(base * (1 + 6 * util ** 3) + rng.normal(0, base * 0.03), 3)
-            io_kb = {"ss-hot": 512, "ss-capacity": 1024, "ss-archive": 4096}[cid]
+            io_kb = {"ss-hot": 512, "ss-cold": 2048}[cid]
             c["iops_k"] = round((c["read_gbs"] + c["write_gbs"]) * 1e6 / io_kb / 1000, 1)
             c["queue"] = round(1 + 30 * util ** 2, 1)
-            c["meta_kops"] = round(18 + 60 * util + rng.normal(0, 2), 1) if cid != "ss-archive" else round(1.2 + rng.normal(0, 0.1), 1)
+            c["meta_kops"] = round((18 + 60 * util) * (1.0 if cid == "ss-hot" else 0.35) + rng.normal(0, 2), 1)
             c["util_pct"] = round(util * 100, 1)
             c["health"] = "degraded" if degraded else ("busy" if util > 0.85 else "healthy")
             c["used_pb"] = min(T.STORAGE_BY_ID[cid]["capacity_pb"] * 0.995,
@@ -91,7 +90,7 @@ class Storage:
                 rs, ws = pr / tot_r * 0.7, pw / tot_w * 0.9
             v["read_gbs"] = round(c["read_gbs"] * rs * rng.uniform(0.9, 1.1), 2)
             v["write_gbs"] = round(c["write_gbs"] * ws * rng.uniform(0.9, 1.1), 2)
-            io_kb = 512 if v["cluster"] == "ss-hot" else 1024
+            io_kb = 512 if v["cluster"] == "ss-hot" else 2048
             v["iops_k"] = round((v["read_gbs"] + v["write_gbs"]) * 1e6 / io_kb / 1000, 1)
             v["latency_ms"] = round(c["latency_ms"] * rng.uniform(0.9, 1.25), 3)
             v["queue"] = round(c["queue"] * rng.uniform(0.3, 1.0), 1)
@@ -133,11 +132,12 @@ class Network:
         rack_nodes = np.bincount(node_rack, minlength=T.GPU_RACKS)
         self.ib_penalty[:] = 0.0
 
-        ib_leaf_util = []
+        ib_leaf_util = {}
         for leaf in T.IB_LEAVES:
+            # one rail of the SU: every node puts 1/8 of its IB traffic (one 800G CX-8 port) on this leaf
             racks = [T.RACK_INDEX[r] for r in leaf["serves"]]
             frac = float(rack_ib[racks].sum() / (rack_nodes[racks].sum() * 6400.0 + 1e-9))
-            util = min(98.0, frac * 100 * 1.08)
+            util = min(98.0, frac * 100 * 1.08 * rng.uniform(0.97, 1.03))
             d = self.dev[leaf["id"]]
             flap = leaf["id"] in faults
             if flap:
@@ -152,17 +152,18 @@ class Network:
                 d["errors"] += int(rng.poisson(0.05 * dt))
                 d["err_rate"] = round(float(rng.uniform(0, 4e-10)), 12)
                 d["status"] = "up"
-            cap = 12.8 * 1000  # Gb/s uplink capacity
+            cap = T.NODES_PER_SU * leaf["speed_g"]  # 72 uplinks × 800G
             d["util_pct"] = round(util, 1)
             d["in_gbps"] = round(util / 100 * cap * rng.uniform(0.96, 1.02), 0)
             d["out_gbps"] = round(util / 100 * cap * rng.uniform(0.96, 1.02), 0)
             d["temp_c"] = round(44 + util * 0.18 + rng.normal(0, 0.3), 1)
-            ib_leaf_util.append(util)
+            ib_leaf_util[leaf["id"]] = util
         for sp in T.IB_SPINES:
             d = self.dev[sp["id"]]
-            util = float(np.mean(ib_leaf_util)) * rng.uniform(0.9, 1.08)
-            d.update(util_pct=round(util, 1), in_gbps=round(util / 100 * 25600 * 0.5, 0),
-                     out_gbps=round(util / 100 * 25600 * 0.5, 0), temp_c=round(46 + util * 0.15, 1),
+            util = float(np.mean([ib_leaf_util[x] for x in T.IB_PLANE_LEAVES[sp["plane"]]])) * rng.uniform(0.9, 1.08)
+            cap = sp["ports"] * sp["speed_g"]
+            d.update(util_pct=round(util, 1), in_gbps=round(util / 100 * cap * 0.5, 0),
+                     out_gbps=round(util / 100 * cap * 0.5, 0), temp_c=round(46 + util * 0.15, 1),
                      status="down" if sp["id"] in faults else "up")
             d["errors"] += int(rng.poisson(0.02 * dt))
 
@@ -175,7 +176,7 @@ class Network:
                 gbps = float(rack_eth[i]) * 1.0
                 cap = 8 * 400.0
             elif role == "storage":
-                gbps = storage_gbs * 8 / 4 * rng.uniform(0.9, 1.1)
+                gbps = storage_gbs * 8 / (T.STORAGE_RACKS // T.STORAGE_RACKS_PER_LEAF) * rng.uniform(0.9, 1.1)
                 cap = 16 * 400.0
             elif role == "k8s":
                 gbps = float(rng.uniform(180, 420))
@@ -208,23 +209,33 @@ class Network:
         rng = np.random.default_rng(zlib.crc32(dev_id.encode()))
         live = self.rng
         out = []
-        n_up = 8 if spec["tier"] == "leaf" else 0
+        ib = spec["fabric"] == "infiniband"
+        n_up = (T.NODES_PER_SU if ib else 8) if spec["tier"] == "leaf" else 0
+        if ib and spec["tier"] == "leaf":
+            su = T.SU_BY_ID[spec["su"]]
+            su_nodes = [T.NODE_IDS[n] for n in range(su["node_start"], su["node_start"] + su["node_count"])]
         for p in range(1, spec["ports"] + 1):
             if spec["tier"] == "leaf":
                 if p <= n_up:
-                    peer = (T.ETH_SPINES if spec["fabric"] == "ethernet" else T.IB_SPINES)[(p - 1) % (8 if spec["fabric"] == "ethernet" else 6)]["id"]
+                    if ib:   # 72 uplinks spread over the 6 spines of this rail's plane, 12 each
+                        peer = T.IB_PLANE_SPINES[spec["plane"]][(p - 1) // T.IB_LINKS_PER_SPINE]
+                    else:
+                        peer = T.ETH_SPINES[(p - 1) % len(T.ETH_SPINES)]["id"]
                     role = "uplink"
                 else:
                     role = "downlink"
                     rack = spec.get("rack", "")
-                    peer = f"{rack.lower()}-host{p - n_up:02d}" if spec["fabric"] == "ethernet" else f"hca-{p - n_up:02d}"
+                    peer = (f"{su_nodes[p - n_up - 1]}/mlx5_{spec['rail'] - 1}" if ib
+                            else f"{rack.lower()}-host{p - n_up:02d}")
             else:
                 role = "downlink"
-                leaves = T.ETH_LEAVES if spec["fabric"] == "ethernet" else T.IB_LEAVES
-                peer = leaves[(p - 1) % len(leaves)]["id"]
-            name = f"Ethernet{p}/1" if spec["fabric"] == "ethernet" else f"IB1/{p}"
+                if ib:       # spine: 12 links to each of the 12 same-rail leaves
+                    peer = T.IB_PLANE_LEAVES[spec["plane"]][(p - 1) // T.IB_LINKS_PER_SPINE]
+                else:
+                    peer = T.ETH_LEAVES[(p - 1) % len(T.ETH_LEAVES)]["id"]
+            name = f"Ethernet{p}/1" if not ib else f"IB1/{(p + 1) // 2}/{2 - p % 2}"
             share = float(rng.uniform(0.6, 1.3))
-            unused = role == "downlink" and p > (spec["ports"] * 0.85)
+            unused = not ib and role == "downlink" and p > (spec["ports"] * 0.85)
             util = 0.0 if unused else min(99.0, d["util_pct"] * share * live.uniform(0.9, 1.1))
             speed = spec["speed_g"]
             down = spec["fabric"] == "infiniband" and d["links_down"] > 0 and role == "uplink" and p <= d["links_down"]

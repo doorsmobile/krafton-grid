@@ -3,7 +3,7 @@
 Cadence (2 s ticks):
     every tick                  live snapshot (+ PUBLISH for SSE) · every page view · heatmaps · changed time-series tiers
     every HEAVY_EVERY_TICKS     large list views (node table, workloads, platform ops, inventory)
-    every ENTITY_EVERY_TICKS    detail-page entities (625 nodes, racks, devices, jobs, pods, cloud resources)
+    every ENTITY_EVERY_TICKS    detail-page entities (864 nodes, racks, devices, jobs, pods, cloud resources)
     force=True                  every view + entity — right after a command, so the next read reflects it
     full=True                   force + every time-series ring — at start-up
 

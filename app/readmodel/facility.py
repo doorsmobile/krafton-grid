@@ -263,7 +263,7 @@ def capacity(eng) -> dict:
                       "stranded_kw": max(0, round(alloc - used)), "free_kw": round(max(0.0, design - used)),
                       "util_pct": round(used / design * 100, 1)})
     node_kw_peak = G * 1.1 + 2.35 + 0.3
-    rack_peak = node_kw_peak * 16 + 2.2
+    rack_peak = node_kw_peak * T.NODES_PER_RACK + 6.5
     headroom_kw = sum(h["free_kw"] for h in halls if h["id"] in ("HA", "HB", "HD")) * 0.9
     reserved = sum(1 for r in T.RACKS if r.kind == "reserved")
     addable = min(int(headroom_kw // rack_peak), reserved)
@@ -272,12 +272,13 @@ def capacity(eng) -> dict:
         "m1": {"design_mw": T.MODULE_MW, "it_mw": fs["it_mw"], "util_pct": fs["util_pct"],
                "gpu_peak_mw": round((T.GPU_COUNT * T.GPU_TDP_W + T.NODE_COUNT * T.NODE_BASE_W) / 1e6, 2)},
         "halls": halls,
-        "planner": {"node_peak_kw": round(node_kw_peak, 2), "rack_nodes": 16, "rack_peak_kw": round(rack_peak, 1),
+        "planner": {"node_peak_kw": round(node_kw_peak, 2), "rack_nodes": T.NODES_PER_RACK, "rack_peak_kw": round(rack_peak, 1),
+                    "su_racks": T.RACKS_PER_SU, "su_gpus": T.GPUS_PER_SU, "addable_sus": addable // T.RACKS_PER_SU,
                     "headroom_kw": round(headroom_kw), "power_limited_racks": int(headroom_kw // rack_peak),
-                    "space_limited_racks": reserved, "addable_racks": addable, "addable_gpus": addable * 16 * G,
+                    "space_limited_racks": reserved, "addable_racks": addable, "addable_gpus": addable * T.NODES_PER_RACK * G,
                     "binding": "floor space (Hall D positions)" if addable == reserved else "power",
                     "cooling_headroom_mw": round(sum(1 for c in T.COOLING_DEVICES if c["kind"] == "chiller") * 4.9 - fs["cooling"]["chiller_load_mw"] - 4.9, 2)},
-        "fleet": {"gpus": T.GPU_COUNT, "nodes": T.NODE_COUNT, "racks": T.GPU_RACKS, "alloc_pct": round(float((f.gpu_job >= 0).mean() * 100), 1)},
+        "fleet": {"gpus": T.GPU_COUNT, "nodes": T.NODE_COUNT, "racks": T.GPU_RACKS, "sus": T.SU_COUNT, "alloc_pct": round(float((f.gpu_job >= 0).mean() * 100), 1)},
         "space": {"racks_total": len(T.RACKS), "racks_reserved": sum(1 for r in T.RACKS if r.kind == "reserved")},
     }
 
@@ -303,7 +304,7 @@ def hall(eng, hid: str) -> dict | None:
             else:
                 racks.append({"id": rk.id, "kind": rk.kind, "label": rk.label, "kw": round(eng.hallc.get(rk.id, 0.0), 1),
                               "temp_max": None, "util": None, "throttle": 0, "failed": 0, "design_kw": rk.design_kw})
-        rows.append({"id": row["id"], "kind": row["kind"], "cdu": row.get("cdu"),
+        rows.append({"id": row["id"], "kind": row["kind"], "cdu": row.get("cdu"), "su": row.get("su"),
                      "cdu_status": fs["cooling"]["cdus"].get(row.get("cdu") or "", {}).get("status"),
                      "supply_c": fs["cooling"]["row_supply_c"].get(row["id"]), "racks": racks})
     crah = {k: v for k, v in fs["cooling"]["crah"].items() if v["hall"] == hid}

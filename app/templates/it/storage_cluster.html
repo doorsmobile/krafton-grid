@@ -4,7 +4,7 @@
 {% set c = d.cluster %}
 <div class="page-head">
   <div><h1 class="row">{{ c.name }} {{ pill(c.health) }}</h1><p>{{ c.product }} · {{ c.capacity_pb|num(0) }} PB · peak {{ c.peak_read_gbs|num(0) }} GB/s read / {{ c.peak_write_gbs|num(0) }} GB/s write · racks {{ c.racks|join(', ') }}</p></div>
-  <div class="page-actions">{% for x in ['ss-hot','ss-capacity','ss-archive'] %}<a class="btn sm {{ 'primary' if x == c.id else '' }}" href="/storage/cluster/{{ x }}">{{ x }}</a>{% endfor %}</div>
+  <div class="page-actions">{% for x in TOPO.storage_ids %}<a class="btn sm {{ 'primary' if x == c.id else '' }}" href="/storage/cluster/{{ x }}">{{ x }}</a>{% endfor %}</div>
 </div>
 <div class="g g-6">
   <div class="panel tight">{{ kpi('Used', c.used_pb|num(2), 'PB', ((c.used_pb / c.capacity_pb * 100)|num(1)) ~ '%', live='storage.clusters.' ~ c.id ~ '.used_pb', fmt='f2', size='s') }}</div>

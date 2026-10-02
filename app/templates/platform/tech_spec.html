@@ -11,7 +11,7 @@
   <div class="panel tight">{{ kpi('Tick', d.tick_s, 's', 'compute ' ~ d.tick_ms ~ ' ms', live='tick_ms', size='s') }}</div>
   <div class="panel tight">{{ kpi('Metrics', d.metrics, '', '{:,}'.format(d.series) ~ ' series', size='s') }}</div>
   <div class="panel tight">{{ kpi('Redis', 'mirror', '', '<span class="mono xs">' ~ d.redis ~ ':*</span>', size='s') }}</div>
-  <div class="panel tight">{{ kpi('GPUs simulated', '5,000', '', 'per tick, vectorised', size='s') }}</div>
+  <div class="panel tight">{{ kpi('GPUs simulated', '{:,}'.format(TOPO.gpus), '', 'per tick, vectorised', size='s') }}</div>
 </div>
 <div class="g g-2 mt">
   <div class="panel">{{ head('Stack') }}<div class="kv">{% for k, v in d.stack %}<span>{{ k }}</span><span style="text-align:left">{{ v }}</span>{% endfor %}</div></div>

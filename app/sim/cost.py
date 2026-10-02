@@ -27,7 +27,7 @@ CLIMATE_KRW_KWH = 9.0
 FUEL_ADJ_KRW_KWH = 5.0
 FUND_RATE = 0.027
 VAT = 0.10
-CAPEX_KRW_PER_MONTH = 5.8e9  # assumed 5-yr straight-line on fleet + fit-out, for unit economics only
+CAPEX_KRW_PER_MONTH = 8.0e9  # assumed 5-yr straight-line on 6,912 × B300 + 480 PB storage + fit-out, for unit economics only
 
 DC_LINES = [("power", "전기요금", "Power"), ("tax", "세금", "Tax"), ("management", "관리비", "Management"),
             ("labor", "인건비", "Labor")]

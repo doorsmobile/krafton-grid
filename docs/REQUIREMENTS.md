@@ -42,11 +42,11 @@
 | 모듈 블록 | **20 MW** critical IT |
 | 모듈 수 | **5** (M1 live 2026-03 · M2 construction RFS 2027-06 · M3 design · M4/M5 planned) |
 | 전체 envelope | **100 MW** |
-| Phase-1 | M1 online — Hall A/B (GPU, liquid) · Hall C (storage/network/K8s, air) · Hall D (reserved) |
+| Phase-1 | M1 online — Hall A (GPU, liquid, SU01–SU06 · 6 MW) · Hall B (GPU, liquid, SU07–SU12 · 6 MW) · Hall C (storage/network/K8s, air · 3 MW) · Hall D (reserved · SU13–SU16 · 5 MW) |
 | 토폴로지 | Modular / **2N power** / **N+1 cooling** / liquid-first |
 | Target PUE | **1.18** |
 
-> 참고: M1은 20 MW 설계 용량이지만 B300 5,000장 실부하는 **IT ≈ 6 MW** (GPU 1.1 kW TDP · 노드 base 2.35 kW 물리 모델 기준). 나머지는 확장 여유이며 Capacity 플래너에서 증설 가능량으로 표시.
+> 참고: M1은 20 MW 설계 용량이지만 B300 6,912장 실부하는 **IT ≈ 8 MW** (GPU 1.1 kW TDP · 노드 base 2.35 kW 물리 모델 기준, full TDP 시 GPU 노드 ≈ 9.6 MW). 나머지는 확장 여유이며 Capacity 플래너에서 증설 가능량(SU 단위)으로 표시.
 
 Facility 메뉴: **Overview / Power / Cooling / Capacity / Energy & ESG**
 
@@ -65,12 +65,13 @@ Facility 메뉴: **Overview / Power / Cooling / Capacity / Energy & ESG**
 
 | 도메인 | 조건 |
 |--------|------|
-| **GPU** | **NVIDIA B300 × 5,000** (HGX 8 GPU/node → **625 nodes** · 40 racks: R01–R25 ×16 + R26–R40 ×15) |
-| **Storage** | **IBM Storage Scale 100 PB** (ss-hot 16 PB · ss-capacity 64 PB · ss-archive 20 PB) |
-| **Ethernet** | **Arista** spine/leaf (7800R3 × 8, 7060X6 × 48) |
-| **InfiniBand** | **NVIDIA Quantum-2 QM9700** (spine 6 + leaf 10 = 16, leaf당 GPU 랙 4개) |
+| **GPU** | **NVIDIA B300 × 6,912** = **12 SU × 72 nodes × 8 GPU** (HGX B300 · **864 nodes**) |
+| **SU (Scalable Unit)** | NVIDIA DGX SuperPOD B300 RA 기준 **1 SU = 72 nodes = 576 GPU** · 1 SU = 1 row = 랙 4개 × 18 nodes · SU01–SU06 Hall A, SU07–SU12 Hall B · 랙 R01–R48 |
+| **Storage** | **IBM Storage Scale · SU당 Hot 10 PB + Cold 30 PB** → **ss-hot 120 PB** (SSS 6000 all-NVMe) · **ss-cold 360 PB** (SSS 6000 + HDD expansion) = **480 PB** · SU별 building block (Hot S01–S12 · Cold S13–S36) |
+| **Ethernet** | **Arista** spine/leaf (7800R3 × 8, 7060X6 × 58 = GPU ToR 48 · storage 6 · K8s 2 · border 2) |
+| **InfiniBand** | **NVIDIA Quantum-X800 XDR (Q3400, 144 × 800G)** rail-optimized · **SU당 leaf 8개**(rail별, 72 down + 72 up) = 96 · spine 48 (rail plane 8 × 6) |
 | **Kubernetes** | **Dell × 30** (3 control plane + 27 workers) |
-| Slurm 파티션 | train R01–R30 · infer R31–R35 (MIG) · dev R36–R38 · batch R39–R40 |
+| Slurm 파티션 | train SU01–SU09 (R01–R36) · infer SU10 (R37–R40, MIG) · dev SU11 (R41–R44) · batch SU12 (R45–R48) |
 
 IT Cluster 메뉴: **GPU Monitoring / Storage / Network / Kubernetes**
 
@@ -84,7 +85,7 @@ IT Cluster 메뉴: **GPU Monitoring / Storage / Network / Kubernetes**
 ### GPU Monitoring (Datadog GPU Monitoring 컨셉)
 
 - **Fleet Explorer** `/gpu-fleet` — funnel (total → allocated → active → effective, idle-allocated) · idle 비용 · OOTB monitors · recommendations
-- **5,000-GPU 캔버스 히트맵** (util / SM / temp / power / HBM 전환, 스로틀·drain·failed 표시, 클릭 → 디바이스)
+- **6,912-GPU 캔버스 히트맵** (랙 48행 · SU 단위 그룹) (util / SM / temp / power / HBM 전환, 스로틀·drain·failed 표시, 클릭 → 디바이스)
 - Tabs: **Provisioning** · **Performance** · **Inventory (Slurm + CubeFlow)** · **Connected entities**
 - 상세: `/gpu-fleet/device/{id}` · `/gpu-fleet/node/{id}` (drain/resume) · `/gpu-fleet/job/{id}` · `/gpu-fleet/pod/{id}`
 - XID/ECC 건강도, MIG 레이아웃, XID 수동 주입
@@ -210,9 +211,9 @@ app/
   readmodel/               # 집계: 수집 상태 → 페이지/상세 화면별 dict (수집기에서만 실행)
   sim/                     # 데모 수집 소스 = 디지털 트윈
     topology.py            # 캠퍼스·홀·랙·노드·전력/냉각 체인·패브릭·스토리지·K8s
-    fleet.py               # 5,000 GPU 벡터 물리 · Slurm 스케줄러 · MIG · XID/ECC
+    fleet.py               # 6,912 GPU 벡터 물리 · Slurm 스케줄러(SU 단위 배치) · MIG · XID/ECC
     facility.py            # 2N 전력 · N+1 액체냉각 · PUE/WUE/CUE · 발전기 · 에너지
-    itinfra.py             # Storage Scale · Arista/Quantum-2 · Kubernetes
+    itinfra.py             # Storage Scale (hot/cold) · Arista/Quantum-X800 · Kubernetes
     cloud.py · cost.py     # AWS→GCP→NHN · burst · KEPCO TOU · 예산 워크플로
     alerts.py · scenarios.py  # 룰 · 인시던트 상관 · Slack fan-out · 15개 인과 시나리오
     tsdb.py · promql.py · logs.py  # 4-tier TSDB(열 우선 인코딩) · PromQL-lite · LogQL-lite
@@ -298,6 +299,7 @@ app/
 6. **로딩 지연 수정 + 데이터 경로 개편**: 탭별 SSE가 브라우저 호스트당 6연결을 고갈시켜 5 s+ 대기 → 브라우저당 SSE 1개 · 수집기 → Redis → 웹 구조로 분리 · 정적 캐시/폰트 비차단 (`docs/PERFORMANCE.md`)
 8. **사이드바 기본 접힘 + 펼치기 버튼, 버전만 표시, Server Status 메뉴, large 데이터 프로필(EC2), 지난 장애 이력 시드**
 7. **Render 배포 안정화**: Redis 사용량 51 → 15 MB(압축·float16), 수집기 재시도·감시·인계, Redis 용량 부족 시 인메모리 자동 전환, /healthz 진단, URL 비밀번호 마스킹
+9. **GPU 구성 변경: B300 6,912장 = 12 SU × 72 nodes** (요청 "6912장 · 8 SU · SU당 72노드"는 8 × 72 × 8 = 4,608로 맞지 않아, NVIDIA B300 SuperPOD RA의 SU 정의(72 nodes)와 GPU 수 6,912를 유지하고 SU를 12로 결정) · Quantum-X800 rail-optimized 패브릭 · **IBM Hot 10 PB + Cold 30 PB per SU** (480 PB) · 크래프톤 CI 로고/파비콘
 
 ---
 

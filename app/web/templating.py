@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 from .. import config
 from . import nav
 from ..fmt import f_ago, f_dur, f_krw, f_kst, f_num
+from ..sim import topology as T
 from .data import rm
 
 templates = Jinja2Templates(directory=str(config.APP_DIR / "templates"))
@@ -59,6 +60,15 @@ def asset_v() -> str:
 
 env.globals["asset_v"] = asset_v
 env.globals.update(DATA_LARGE=config.DATA_LARGE, MAX_WINDOW_MIN=config.MAX_WINDOW_MIN)
+# static plant configuration (not live state) — keeps page copy in step with app/sim/topology.py
+env.globals["TOPO"] = {
+    "gpus": T.GPU_COUNT, "nodes": T.NODE_COUNT, "racks": T.GPU_RACKS, "sus": T.SU_COUNT, "su_nodes": T.NODES_PER_SU,
+    "su_gpus": T.GPUS_PER_SU, "su_racks": T.RACKS_PER_SU, "rack_nodes": T.NODES_PER_RACK, "gpu": T.GPU_MODEL,
+    "last_rack": T.GPU_RACK_LIST[-1].id, "storage_pb": T.STORAGE_TOTAL_PB, "hot_pb": T.HOT_PB_PER_SU, "cold_pb": T.COLD_PB_PER_SU,
+    "storage_ids": [c["id"] for c in T.STORAGE_CLUSTERS], "ib_leaves": len(T.IB_LEAVES), "ib_spines": len(T.IB_SPINES),
+    "partitions": {p["id"]: {"range": p["range"], "sus": p["sus"]} for p in T.PARTITIONS},
+    "border_leaves": f"eth-leaf-{T.ETH_BORDER_LEAF0}/{T.ETH_BORDER_LEAF0 + 1}",
+}
 
 
 def render(request: Request, template: str, title: str, data: dict | None = None, status_code: int = 200, **ctx):

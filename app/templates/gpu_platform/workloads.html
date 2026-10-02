@@ -67,7 +67,7 @@
         {% for l in d.mig_layouts %}<div class="row mb" style="gap:3px">{% for p in l %}{% set w = {'1g.36gb':1,'2g.72gb':2,'3g.144gb':3,'4g.144gb':4,'7g.288gb':7}[p] %}<span class="tag teal" style="flex:{{ w }};text-align:center">{{ p }}</span>{% endfor %}</div>{% endfor %}
       </div>
       <div class="s-8">
-        {{ head('MIG-enabled GPUs', 'inference pool · R31–R35 · click a slice for its pod') }}
+        {{ head('MIG-enabled GPUs', 'inference pool · ' ~ TOPO.partitions.infer.sus ~ ' (' ~ TOPO.partitions.infer.range ~ ') · click a slice for its pod') }}
         <div class="table-wrap scroll-s"><table class="t" data-sortable><thead><tr><th>GPU</th><th>Node</th><th class="right">Util</th><th class="right">HBM</th><th>Instances</th></tr></thead><tbody>
           {% for g in d.mig %}<tr><td class="mono small"><a class="link" href="/gpu-fleet/device/{{ g.gpu }}">{{ g.gpu }}</a></td><td class="mono small muted">{{ g.node }}</td><td class="right">{{ g.util }}%</td><td class="right">{{ g.mem_gb|num(0) }} GB</td>
             <td><div class="row" style="gap:3px;flex-wrap:nowrap">{% for x in g.instances %}<a class="tag" href="/gpu-fleet/pod/{{ x.pod }}" title="{{ x.service }} · {{ x.pod }}">{{ x.profile }}</a>{% endfor %}</div></td></tr>{% endfor %}

@@ -13,15 +13,15 @@ from . import topology as T
 SCENARIOS = [
     {"id": "cdu-failure", "name": "CDU pump failure · Row A2", "domain": "cooling", "duration_s": 360,
      "faults": ["CDU-A2"], "affects": ["facility.cooling", "it.gpu"],
-     "desc": "Primary pump VFD on CDU-A2 trips. Row A2 (R06–R10) coolant supply climbs until the Hall A spare CDU "
+     "desc": "Primary pump VFD on CDU-A2 trips. Row A2 (SU02 · R05–R08) coolant supply climbs until the Hall A spare CDU "
              "takes the row over the N+1 manifold (~24 s), then settles several degrees warmer.",
-     "root_cause": "CDU-A2 primary pump VFD fault", "impact": "Row A2 · R06–R10 · 640 GPUs · thermal excursion"},
-    {"id": "cdu-double", "name": "CDU failure with spare offline · Row B3", "domain": "cooling", "duration_s": 300,
-     "faults": ["CDU-B3", "CDU-BS"], "affects": ["facility.cooling", "it.gpu", "platform"],
-     "desc": "CDU-B3 fails while the Hall B spare is out for service. No failover path: inference racks R31–R35 "
-             "thermal-throttle until the scenario clears.",
-     "root_cause": "CDU-B3 failure while CDU-BS unavailable (spare under maintenance)",
-     "impact": "Row B3 · inference partition · sustained throttling"},
+     "root_cause": "CDU-A2 primary pump VFD fault", "impact": "Row A2 · SU02 · R05–R08 · 576 GPUs · thermal excursion"},
+    {"id": "cdu-double", "name": "CDU failure with spare offline · Row B4", "domain": "cooling", "duration_s": 300,
+     "faults": ["CDU-B4", "CDU-BS"], "affects": ["facility.cooling", "it.gpu", "platform"],
+     "desc": "CDU-B4 fails while the Hall B spare is out for service. No failover path: the inference SU (SU10 · R37–R40) "
+             "thermal-throttles until the scenario clears.",
+     "root_cause": "CDU-B4 failure while CDU-BS unavailable (spare under maintenance)",
+     "impact": "Row B4 · SU10 · inference partition · sustained throttling"},
     {"id": "chiller-trip", "name": "Chiller CH-1 trip", "domain": "cooling", "duration_s": 300,
      "faults": ["CH-1"], "affects": ["facility.cooling"],
      "desc": "Lead chiller trips on a compressor fault. CHW supply rises until a standby chiller starts (~90 s).",
@@ -38,10 +38,11 @@ SCENARIOS = [
      "faults": ["UTIL-1", "UTIL-2"], "affects": ["facility.power"],
      "desc": "Both 154 kV feeds lost. All UPS on battery, all ten gensets start and carry the campus.",
      "root_cause": "Regional grid disturbance — both KEPCO feeders tripped", "impact": "Campus on gensets · fuel burn"},
-    {"id": "ib-flap", "name": "InfiniBand leaf flap · ib-leaf-05", "domain": "network", "duration_s": 300,
+    {"id": "ib-flap", "name": "InfiniBand rail leaf flap · ib-leaf-05", "domain": "network", "duration_s": 300,
      "faults": ["ib-leaf-05"], "affects": ["it.network", "it.gpu", "platform"],
-     "desc": "Transceivers on ib-leaf-05 flap. Collectives on R17–R20 stall, step time balloons, some jobs hit NCCL timeouts.",
-     "root_cause": "ib-leaf-05 OSFP transceivers — symbol errors / link down", "impact": "R17–R20 · all-reduce slowdown"},
+     "desc": "Transceivers on ib-leaf-05 (SU01 · rail 5) flap. Every all-reduce spanning SU01 (R01–R04) waits on that rail: "
+             "step time balloons, some jobs hit NCCL timeouts.",
+     "root_cause": "ib-leaf-05 OSFP transceivers — symbol errors / link down", "impact": "SU01 · R01–R04 · rail 5 · all-reduce slowdown"},
     {"id": "xid-storm", "name": "XID storm · rack R12", "domain": "gpu", "duration_s": 240,
      "faults": [], "xid_racks": ["R12"], "affects": ["it.gpu", "platform"],
      "desc": "A bad firmware push on R12 causes repeated Xid 79/119 events. Health checks drain nodes; jobs fail over.",
@@ -51,13 +52,14 @@ SCENARIOS = [
      "desc": "Ambient dry-bulb +9 °C. Free cooling drops, trim chillers stage up, PUE climbs.",
      "root_cause": "Ambient heat wave — wet-bulb above free-cooling limit", "impact": "PUE ↑ · chiller load ↑"},
     {"id": "checkpoint-storm", "name": "Synchronized checkpoint storm", "domain": "storage", "duration_s": 180,
-     "faults": [], "storage_storm": 2.4, "affects": ["it.storage"],
+     "faults": [], "storage_storm": 5.6, "affects": ["it.storage"],
      "desc": "Several large jobs checkpoint on the same boundary; the hot tier absorbs a write burst and latency spikes.",
      "root_cause": "Aligned checkpoint schedules across llm-pretrain jobs", "impact": "ss-hot latency · write GB/s spike"},
     {"id": "nsd-degraded", "name": "Scale NSD servers down · hot tier", "domain": "storage", "duration_s": 300,
      "faults": ["NSD-ss-hot"], "affects": ["it.storage"],
-     "desc": "Two NSD servers in the hot tier go offline; bandwidth drops by 1/8 and latency rises under load.",
-     "root_cause": "NSD building block power-supply failure", "impact": "ss-hot capacity −12.5%"},
+     "desc": "The NSD server pair of one hot-tier building block (one SU's 10 PB) goes offline; bandwidth drops by 1/12 "
+             "and latency rises under load.",
+     "root_cause": "NSD building block power-supply failure", "impact": "ss-hot bandwidth −8.3% (1 of 12 blocks)"},
     {"id": "k8s-node-down", "name": "Kubernetes worker NotReady · k8s-w-07", "domain": "k8s", "duration_s": 240,
      "faults": ["k8s-w-07"], "affects": ["it.k8s"],
      "desc": "Kubelet on k8s-w-07 stops reporting. Pods are rescheduled after the eviction timeout.",
@@ -72,8 +74,8 @@ SCENARIOS = [
      "root_cause": "PUBG live-ops event traffic", "impact": "Inference util ↑ · gateway replicas ↑"},
     {"id": "leak", "name": "Leak detected · CDU-B1 manifold", "domain": "cooling", "duration_s": 180,
      "faults": ["LEAK-CDU-B1"], "affects": ["facility.cooling"],
-     "desc": "Rope sensor under the Row B1 manifold trips. No thermal impact yet — a people problem, fast.",
-     "root_cause": "Quick-disconnect weep on R21 manifold", "impact": "Row B1 · leak response"},
+     "desc": "Rope sensor under the Row B1 (SU07) manifold trips. No thermal impact yet — a people problem, fast.",
+     "root_cause": "Quick-disconnect weep on R25 manifold", "impact": "Row B1 · SU07 · leak response"},
 ]
 SCENARIO_BY_ID = {s["id"]: s for s in SCENARIOS}
 

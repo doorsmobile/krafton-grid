@@ -1,4 +1,4 @@
-/* Krafton Grid · 5,000-GPU canvas heat grid (40 racks × 16 nodes × 8 GPUs) */
+/* Krafton Grid · canvas heat grid — one row per GPU rack (48 × 18 nodes × 8 GPUs), racks grouped by SU */
 (() => {
   const RAMPS = {
     util: [[0, [24, 27, 33]], [0.05, [22, 46, 52]], [0.4, [16, 92, 88]], [0.75, [20, 158, 139]], [0.92, [45, 212, 191]], [1, [190, 247, 234]]],
@@ -38,7 +38,7 @@
     layout() {
       const W = this.wrap.clientWidth || 900;
       const labelW = 38, nodeGap = 3, gpuGap = 1;
-      const cols = 16, per = 8;
+      const per = (this.data && this.data.per) || 8, cols = this.data ? this.data.cols / per : 18;
       const cell = Math.max(3, Math.floor((W - labelW - cols * nodeGap) / (cols * per)) - gpuGap);
       const rowH = 12, rowGap = 3, groupGap = 9;
       return { W, labelW, nodeGap, gpuGap, cols, per, cell, rowH, rowGap, groupGap };
@@ -48,7 +48,7 @@
       const d = this.data; if (!d) return;
       const L = this.layout(); this.L = L;
       const racks = d.racks.length;
-      const groups = Math.ceil(racks / 5);
+      const grp = d.group || 4, groups = Math.ceil(racks / grp);
       const H = racks * (L.rowH + L.rowGap) + (groups - 1) * L.groupGap + 4;
       const dpr = window.devicePixelRatio || 1;
       const c = this.canvas; c.width = L.W * dpr; c.height = H * dpr; c.style.height = H + "px";
@@ -58,7 +58,7 @@
       g.font = "600 10px JetBrains Mono, monospace"; g.textBaseline = "middle";
       this.rowsY = [];
       for (let r = 0; r < racks; r++) {
-        const y = r * (L.rowH + L.rowGap) + Math.floor(r / 5) * L.groupGap + 2;
+        const y = r * (L.rowH + L.rowGap) + Math.floor(r / grp) * L.groupGap + 2;
         this.rowsY.push(y);
         g.fillStyle = "#6b7280"; g.fillText(d.racks[r], 0, y + L.rowH / 2);
         for (let s = 0; s < L.cols; s++) {
@@ -92,7 +92,7 @@
       const id = `kg-${rack}-n${String(s + 1).padStart(2, "0")}-g${k}`;
       this.hover = { id };
       const st = d.legend[String(d.status[i])];
-      this.tip.innerHTML = `<b>${id}</b>${d.metric} <span style="float:right;font-weight:650">${Grid.fmt.f1(v)} ${d.unit}</span><br><span class="muted">status</span> <span style="float:right">${st}</span><br><span class="faint xs">click for device detail</span>`;
+      this.tip.innerHTML = `<b>${id}</b>${d.sus ? `<span class="muted">${d.sus[r]}</span><br>` : ""}${d.metric} <span style="float:right;font-weight:650">${Grid.fmt.f1(v)} ${d.unit}</span><br><span class="muted">status</span> <span style="float:right">${st}</span><br><span class="faint xs">click for device detail</span>`;
       this.tip.style.display = "block";
       this.tip.style.left = Math.min(window.innerWidth - 220, e.clientX + 14) + "px";
       this.tip.style.top = e.clientY + 14 + "px";

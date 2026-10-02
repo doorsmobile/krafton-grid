@@ -34,7 +34,7 @@
       <label for="f-name">Job name</label>
       <input class="input" id="f-name" placeholder="optional · e.g. ally-policy-sft-v5" maxlength="48">
       <label>Placement</label>
-      <div class="xs muted" id="f-hint">dev partition · R36–R38 · shared nodes</div>
+      <div class="xs muted" id="f-hint">dev partition · {{ TOPO.partitions.dev.sus }} ({{ TOPO.partitions.dev.range }}) · shared nodes</div>
     </div>
     <div class="row between mt">
       <span class="xs faint">Topology-aware: multi-node jobs are packed under the fewest IB leaves. Pending training jobs may burst to AWS Capacity Blocks.</span>
@@ -89,8 +89,9 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const NODE = { finetune: 1, pretrain: 1, rlhf: 1 };
-  const PART = { notebook: "dev partition · R36–R38 · shared nodes", data: "batch partition · R39–R40 · shared nodes",
-    finetune: "train partition · R01–R30 · exclusive nodes", pretrain: "train partition · R01–R30 · exclusive nodes · IB-leaf packed", rlhf: "train partition · R01–R30 · exclusive nodes" };
+  const TP = {{ TOPO.partitions|tojson }}, part = (id) => `${id} partition · ${TP[id].sus} (${TP[id].range})`;
+  const PART = { notebook: part("dev") + " · shared nodes", data: part("batch") + " · shared nodes",
+    finetune: part("train") + " · exclusive nodes", pretrain: part("train") + " · exclusive nodes · packed by SU ({{ TOPO.su_nodes }} nodes / rail group)", rlhf: part("train") + " · exclusive nodes" };
   function hint() {
     const p = $("f-profile").value, n = +$("f-size").value || 1;
     const nodes = NODE[p] || (p === "eval" && n >= 8);

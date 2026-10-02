@@ -6,18 +6,25 @@ import pytest
 
 
 def test_inventory_matches_spec():
-    assert T.GPU_COUNT == 5000 and T.NODE_COUNT == 625 and T.GPU_RACKS == 40
-    assert len(T.K8S_NODES) == 30 and T.STORAGE_TOTAL_PB == 100
+    # 12 SU × 72 HGX B300 nodes × 8 GPUs; per SU 10 PB hot + 30 PB cold IBM Storage Scale
+    assert T.GPU_COUNT == 6912 and T.NODE_COUNT == 864 and T.GPU_RACKS == 48
+    assert T.SU_COUNT == 12 and all(len(range(u["node_start"], u["node_start"] + u["node_count"])) == 72 for u in T.SUS)
+    assert {c["id"]: c["capacity_pb"] for c in T.STORAGE_CLUSTERS} == {"ss-hot": 120, "ss-cold": 360}
+    assert len(T.K8S_NODES) == 30 and T.STORAGE_TOTAL_PB == 480
+    # rail-optimized XDR fabric: 8 leaves per SU (72 down + 72 up), 6 spines per rail plane
+    assert len(T.IB_LEAVES) == 96 and len(T.IB_SPINES) == 48
+    assert all(len(T.IB_PLANE_LEAVES[p]) * T.IB_LINKS_PER_SPINE == T.IB_PORTS for p in T.IB_PLANE_LEAVES)
+    assert sorted(r for p in T.PARTITIONS for r in p["racks"]) == [r.id for r in T.GPU_RACK_LIST]
     assert [m["id"] for m in T.MODULES] == ["M1", "M2", "M3", "M4", "M5"]
 
 
 def test_physics_is_plausible(eng):
     s = eng.live["site"]
-    assert 4.0 < s["it_mw"] < 9.0, s["it_mw"]
+    assert 5.5 < s["it_mw"] < 12.5, s["it_mw"]
     assert 1.08 < s["pue"] < 1.30
     assert eng.live["power"]["redundancy"] == "2N"
     g = eng.live["gpu"]
-    assert g["total"] == 5000 and 0 < g["allocated"] <= 5000
+    assert g["total"] == 6912 and 0 < g["allocated"] <= 6912
     assert g["max_temp"] < 87
 
 

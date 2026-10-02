@@ -9,7 +9,7 @@
 <div class="g g-12">
   <div class="panel s-8 chat-panel">
     <div class="chat" id="chat">
-      <div class="msg agent"><div class="bubble"><p><b>{{ AGENT }}</b> — I watch power, cooling, 5,000 GPUs, storage, network, Kubernetes, cloud and cost. Ask me what is wrong, why, and what to do next.</p>
+      <div class="msg agent"><div class="bubble"><p><b>{{ AGENT }}</b> — I watch power, cooling, {{ '{:,}'.format(TOPO.gpus) }} GPUs in {{ TOPO.sus }} SUs, storage, network, Kubernetes, cloud and cost. Ask me what is wrong, why, and what to do next.</p>
         <p class="xs muted">Read-only: I never change equipment state. Actions (drain, scenario stop, alert ack) stay with you.</p></div></div>
     </div>
     <div class="row wrap mt-s" style="gap:6px" id="sugg">{% for s in d.suggestions %}<button class="chip" data-s="{{ s }}">{{ s }}</button>{% endfor %}</div>

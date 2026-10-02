@@ -14,9 +14,9 @@ NAV = [
         {"label": "Energy & ESG", "href": "/facility/energy", "api": ["/api/facility/energy"], "desc": "PUE · WUE · CUE · carbon · energy flow", "new": True},
     ]},
     {"label": "IT Cluster", "icon": "cpu", "children": [
-        {"label": "GPU Monitoring", "href": "/gpu-fleet", "api": ["/api/gpu/fleet", "/api/gpu/heatmap", "/api/gpu/nodes"], "desc": "Fleet explorer · 5,000 B300"},
-        {"label": "Storage", "href": "/storage", "api": ["/api/storage", "/api/storage/cluster/{cluster_id}"], "desc": "IBM Storage Scale · 100 PB"},
-        {"label": "Network", "href": "/network", "api": ["/api/network", "/api/network/device/{device_id}"], "desc": "Arista + Quantum-2 IB"},
+        {"label": "GPU Monitoring", "href": "/gpu-fleet", "api": ["/api/gpu/fleet", "/api/gpu/heatmap", "/api/gpu/nodes"], "desc": "Fleet explorer · 6,912 B300 · 12 SU"},
+        {"label": "Storage", "href": "/storage", "api": ["/api/storage", "/api/storage/cluster/{cluster_id}"], "desc": "IBM Storage Scale · 480 PB (hot 120 · cold 360)"},
+        {"label": "Network", "href": "/network", "api": ["/api/network", "/api/network/device/{device_id}"], "desc": "Arista + Quantum-X800 XDR IB"},
         {"label": "Kubernetes", "href": "/kubernetes", "api": ["/api/kubernetes", "/api/kubernetes/node/{node_id}"], "desc": "Dell XE9680 × 30"},
     ]},
     {"label": "GPU Platform", "icon": "layers", "children": [

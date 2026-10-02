@@ -42,7 +42,8 @@
       {{ head('Connectivity & power') }}
       <div class="kv">
         <span>Ethernet leaf</span><span><a class="link mono" href="/network/device/{{ r.eth_leaf }}">{{ r.eth_leaf }}</a></span>
-        <span>InfiniBand leaf</span><span><a class="link mono" href="/network/device/{{ r.ib_leaf }}">{{ r.ib_leaf }}</a></span>
+        <span>Scalable unit</span><span><b>{{ r.su }}</b> · partition {{ r.partition }}</span>
+        <span>InfiniBand rails</span><span>{% for l in r.ib_leaves %}<a class="link mono" href="/network/device/{{ l }}">{{ l[-2:] }}</a>{{ ' ' if not loop.last }}{% endfor %} <span class="xs muted">(ib-leaf-NN · one per rail)</span></span>
         <span>Busway A</span><span><a class="link mono" href="/facility/power/{{ d.power.a }}">{{ d.power.a }}</a></span>
         <span>Busway B</span><span><a class="link mono" href="/facility/power/{{ d.power.b }}">{{ d.power.b }}</a></span>
         <span>CDU</span><span><a class="link mono" href="/facility/cooling/{{ d.cooling.cdu }}">{{ d.cooling.cdu }}</a> {{ pill(d.cooling.status) }}</span>

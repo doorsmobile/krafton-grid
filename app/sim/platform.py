@@ -5,7 +5,7 @@ from . import topology as T
 
 NOTICES = [
     {"date": "2026-09-29", "level": "info", "title": "B300 driver 580.95 · CUDA 13.0.2 rollout",
-     "text": "Rolling update on train partition racks R01–R16 completed; R17–R30 scheduled this week (no job impact, drain-and-resume)."},
+     "text": "Rolling update on train partition SU01–SU04 (R01–R16) completed; SU05–SU09 (R17–R36) scheduled this week (no job impact, drain-and-resume)."},
     {"date": "2026-09-26", "level": "warning", "title": "IB fabric maintenance window",
      "text": "UFM firmware upgrade on ib-spine-01..06 · 2026-10-04 02:00–04:00 KST. Multi-node jobs spanning spines will be held."},
     {"date": "2026-09-22", "level": "info", "title": "MIG profile 3g.144gb available on infer",

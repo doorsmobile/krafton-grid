@@ -70,7 +70,7 @@ def campus(eng) -> dict:
         {"id": "labs", "x": 59, "y": 55, "w": 12, "h": 12, "title": "AI Labs", "href": "/gpu-platform",
          "lines": [f"{L['gpu']['jobs_running']} jobs running", f"{L['gpu']['jobs_pending']} pending"], "level": "ok"},
         {"id": "storage", "x": 74, "y": 55, "w": 16, "h": 13, "title": "Storage & Logistics", "href": "/storage",
-         "lines": [f"IBM Scale {L['storage']['used_pb']:.1f} / 100 PB", f"{L['storage']['read_gbs']:.0f} GB/s read"], "level": "ok"},
+         "lines": [f"IBM Scale {L['storage']['used_pb']:.1f} / {T.STORAGE_TOTAL_PB:,.0f} PB", f"{L['storage']['read_gbs']:.0f} GB/s read"], "level": "ok"},
         {"id": "gate", "x": 47, "y": 80, "w": 9, "h": 8, "title": "Main gate · security", "href": "/inventory",
          "lines": ["Badge access · CCTV · 24×7"], "level": "ok"},
     ]
@@ -201,7 +201,7 @@ def inventory(eng, q: str = "", kind: str = "") -> dict:
     f = eng.fleet
     for n in range(T.NODE_COUNT):
         items.append({"id": T.NODE_IDS[n], "domain": "IT · GPU", "kind": "hgx-node", "vendor": "NVIDIA", "model": T.NODE_MODEL,
-                      "location": f"{T.NODE_RACK[n]} · U{3 + (T.NODE_SLOT[n] - 1) * 3}", "href": f"/gpu-fleet/node/{T.NODE_IDS[n]}",
+                      "location": f"{T.NODE_RACK[n]} · {T.NODE_SU[n]} · U{node_u(T.NODE_SLOT[n])}", "href": f"/gpu-fleet/node/{T.NODE_IDS[n]}",
                       "status": str(f.node_state[n])})
     for d in T.NET_DEVICES:
         items.append({"id": d["id"], "domain": "IT · Network", "kind": f"{d['fabric']}-{d['tier']}", "vendor": d["vendor"],
@@ -211,6 +211,11 @@ def inventory(eng, q: str = "", kind: str = "") -> dict:
         items.append({"id": c["id"], "domain": "IT · Storage", "kind": "scale-cluster", "vendor": "IBM", "model": c["product"],
                       "location": f"{c['racks'][0]}–{c['racks'][-1]}", "href": f"/storage/cluster/{c['id']}",
                       "status": eng.storage.clusters[c["id"]]["health"]})
+        for u in T.SUS:   # one building block per SU per tier
+            rk = u[f"{c['tier']}_racks"]
+            items.append({"id": f"{c['id']}-{u['id'].lower()}", "domain": "IT · Storage", "kind": f"{c['tier']}-block", "vendor": "IBM",
+                          "model": f"{c['block']}", "location": f"{rk[0]}–{rk[-1]}" if len(rk) > 1 else rk[0],
+                          "href": f"/storage/cluster/{c['id']}", "status": eng.storage.clusters[c["id"]]["health"]})
     for n in T.K8S_NODES:
         items.append({"id": n["id"], "domain": "IT · Kubernetes", "kind": n["role"], "vendor": "Dell", "model": n["model"],
                       "location": n["rack"], "href": f"/kubernetes/node/{n['id']}", "status": eng.k8s.nodes[n["id"]]["status"]})
@@ -223,9 +228,17 @@ def inventory(eng, q: str = "", kind: str = "") -> dict:
     if kind:
         items = [i for i in items if i["domain"] == kind]
     return {"total": len(items), "counts": counts, "items": items,
-            "headline": {"gpus": T.GPU_COUNT, "nodes": T.NODE_COUNT, "gpu_racks": T.GPU_RACKS, "storage_pb": T.STORAGE_TOTAL_PB,
+            "headline": {"gpus": T.GPU_COUNT, "nodes": T.NODE_COUNT, "gpu_racks": T.GPU_RACKS, "sus": T.SU_COUNT, "storage_pb": T.STORAGE_TOTAL_PB,
                          "eth_switches": len(T.ETH_LEAVES) + len(T.ETH_SPINES), "ib_switches": len(T.IB_LEAVES) + len(T.IB_SPINES),
                          "k8s_nodes": len(T.K8S_NODES)}}
+
+
+NODE_U = 2  # liquid-cooled HGX B300 tray height
+
+
+def node_u(slot: int) -> int:
+    """Bottom U of a node: slot 1 at U49–50 down to slot 18 at U15–16 (U52 ToR, U51 OOB, U3 IB patch, U1 power)."""
+    return 49 - (slot - 1) * NODE_U
 
 
 def racks(eng) -> dict:
@@ -244,11 +257,11 @@ def racks(eng) -> dict:
                                "throttle": int((f.throttle[gm] == 1).sum()), "failed": int((f.health[gm] == 2).sum()),
                                "drain": int(sum(1 for n in range(rk.node_start, rk.node_start + rk.node_count)
                                                 if f.node_state[n] in ("drain", "down"))),
-                               "label": rk.label, "partition": T.RACK_PARTITION[rk.id]})
+                               "label": rk.label, "partition": T.RACK_PARTITION[rk.id], "su": rk.extra["su"]})
                 else:
                     rr.append({"id": rk.id, "kind": rk.kind, "kw": round(eng.hallc.get(rk.id, 0.0), 1), "design_kw": rk.design_kw,
                                "temp": None, "util": None, "throttle": 0, "failed": 0, "drain": 0, "label": rk.label})
-            rows.append({"id": row["id"], "kind": row["kind"], "racks": rr,
+            rows.append({"id": row["id"], "kind": row["kind"], "racks": rr, "su": row.get("su"),
                          "supply_c": eng.facility.row_supply.get(row["id"]),
                          "cdu_status": eng.facility.cdu.get(row.get("cdu") or "", {}).get("status")})
         halls.append({"id": h["id"], "name": h["name"], "purpose": h["purpose"], "rows": rows,
@@ -269,12 +282,14 @@ def rack(eng, rid: str) -> dict | None:
         for n in range(rk.node_start, rk.node_start + rk.node_count):
             gsl = slice(n * G, (n + 1) * G)
             slot = T.NODE_SLOT[n]
-            units.append({"u": 48 - (slot - 1) * 3, "size": 3, "kind": "node", "id": T.NODE_IDS[n], "label": T.NODE_IDS[n],
+            units.append({"u": node_u(slot), "size": NODE_U, "kind": "node", "id": T.NODE_IDS[n], "label": T.NODE_IDS[n],
                           "href": f"/gpu-fleet/node/{T.NODE_IDS[n]}", "status": str(f.node_state[n]),
                           "util": round(float(f.util[gsl].mean()), 1), "temp": round(float(f.temp[gsl].max()), 1),
                           "power_kw": round(float(f.node_power[n]) / 1000, 2),
                           "gpus": [{"util": round(float(f.util[g]), 0), "temp": round(float(f.temp[g]), 0),
                                     "health": int(f.health[g]), "throttle": int(f.throttle[g])} for g in range(n * G, (n + 1) * G)]})
+        units.append({"u": 3, "size": 2, "kind": "mgmt", "id": f"ib-patch-{rk.id.lower()}",
+                      "label": f"IB rail patch · {rk.extra['su']} leaves {rk.extra['ib_leaves'][0][-2:]}–{rk.extra['ib_leaves'][-1][-2:]}", "status": "up"})
         units.append({"u": 1, "size": 2, "kind": "power", "id": f"ps-{rk.id.lower()}", "label": "Power shelf · A/B busway taps", "status": "up"})
         i = T.RACK_INDEX[rk.id]
         gm = f.gpu_rack == i
@@ -285,7 +300,7 @@ def rack(eng, rid: str) -> dict | None:
     else:
         stats = {"kw": round(eng.hallc.get(rk.id, 0.0), 1), "col": None}
     return {"rack": {**{k: getattr(rk, k) for k in ("id", "hall", "row", "pos", "kind", "design_kw", "label", "cdu", "eth_leaf", "ib_leaf")},
-                     "partition": T.RACK_PARTITION.get(rk.id)},
+                     "partition": T.RACK_PARTITION.get(rk.id), "su": rk.extra.get("su"), "ib_leaves": rk.extra.get("ib_leaves", [])},
             "units": units, "stats": stats,
             "cooling": {"cdu": rk.cdu, "status": eng.facility.cdu.get(rk.cdu, {}).get("status"),
                         "supply_c": round(eng.facility.row_supply.get(rk.row, 0.0), 1) if rk.row in eng.facility.row_supply else None},
@@ -331,7 +346,7 @@ def observability(eng) -> dict:
             "log_services": eng.logs.services(), "events": len(eng.events), "relays": relay_state(eng)["relays"],
             "solutions": [
                 {"id": "explore", "title": "Explore", "href": "/observability/explore", "desc": "Metrics, logs and events on one timeline."},
-                {"id": "metrics", "title": "Metrics", "href": "/observability/metrics", "desc": "PromQL-style queries over 5,000 GPUs and the plant."},
+                {"id": "metrics", "title": "Metrics", "href": "/observability/metrics", "desc": f"PromQL-style queries over {T.GPU_COUNT:,} GPUs and the plant."},
                 {"id": "logs", "title": "Logs", "href": "/observability/logs", "desc": "LogQL-style search across Slurm, DCGM, UFM, EOS, BMS."},
                 {"id": "relay", "title": "Telemetry Relay", "href": "/observability/telemetry-relay", "desc": "Forward to Grafana, Datadog, Splunk, GCS."},
                 {"id": "usage", "title": "Resource Usage", "href": "/observability/resource-usage", "desc": "Compute, storage, network by project with cost."},
@@ -412,14 +427,19 @@ def tech_spec(eng) -> dict:
         "series": sum(m.width for m in eng.tsdb.metrics.values()),
         "stack": [("Language", "Python 3.14"), ("Web", "FastAPI + Uvicorn + Jinja2 · Server-Sent Events (one stream per browser)"),
                   ("Data path", "collector → Redis read models → web (pages · APIs · SSE read Redis only)"),
-                  ("Simulation", "numpy-vectorised physics · 5,000 GPUs per 2 s tick (the demo collector)"),
+                  ("Simulation", f"numpy-vectorised physics · {T.GPU_COUNT:,} GPUs per 2 s tick (the demo collector)"),
                   ("State", f"Redis {config.REDIS_PREFIX}:* — live · view:* · ent:* · ts:* · logs · meta · cmd bus"),
                   ("Charts", "Highcharts 13 local vendor (heatmap · sankey · xrange · solid-gauge) + canvas heat grid"),
                   ("Query", "PromQL-lite + LogQL-lite evaluated in the web tier over Redis data"),
                   ("AI", f"Claude ({config.MISSION_CONTROL_MODEL}) tool-use agent over the read models · offline analyst fallback"),
                   ("Auth", "Optional session login (AUTH_ENABLED=1)")],
         "model": [
-            ("GPU fleet", f"{T.GPU_COUNT:,} × {T.GPU_MODEL} · {T.NODE_COUNT} HGX nodes · {T.GPU_RACKS} racks (R01–R25 × 16, R26–R40 × 15)"),
+            ("GPU fleet", f"{T.GPU_COUNT:,} × {T.GPU_MODEL} · {T.SU_COUNT} SU × {T.NODES_PER_SU} HGX nodes = {T.NODE_COUNT} nodes · "
+                          f"{T.GPU_RACKS} racks × {T.NODES_PER_RACK} nodes ({T.RACKS_PER_SU} racks / SU)"),
+            ("Fabric", f"Quantum-X800 XDR rail-optimized · {len(T.IB_LEAVES)} leaves ({T.IB_RAILS} per SU) + {len(T.IB_SPINES)} spines "
+                       f"in {T.IB_RAILS} planes · 800G per GPU"),
+            ("Storage", f"IBM Storage Scale · per SU {T.HOT_PB_PER_SU:.0f} PB hot (NVMe) + {T.COLD_PB_PER_SU:.0f} PB cold (HDD) · "
+                        f"{T.STORAGE_TOTAL_PB:,.0f} PB total"),
             ("GPU physics", f"P = {T.GPU_IDLE_W:.0f} W + ({T.GPU_TDP_W:.0f} − {T.GPU_IDLE_W:.0f}) · util^0.9 · T = T_coolant + 0.0275 °C/W · P · throttle at 87 °C"),
             ("Node power", f"8 GPUs + {T.NODE_BASE_W / 1000:.2f} kW base (CPU, DRAM, 8× CX-8, BlueField-3) scaled by host CPU"),
             ("Cooling", "88% of rack heat to liquid (CDU → FWS → towers / free-cooling HX), 12% + Hall C to air (CRAH → CHW → chillers)"),
@@ -434,8 +454,8 @@ def tech_spec(eng) -> dict:
             ("app/collector/", "collector process: runs the demo collector (simulator), publishes read models, serves the command bus"),
             ("app/readmodel/", "read-model builders — collected state → one dict per page / detail entity"),
             ("app/store.py", "Redis contract (key layout, lease, command bus) + in-process fallback"),
-            ("app/sim/topology.py", "campus, halls, racks, 625 nodes, power & cooling chains, fabric, storage, K8s"),
-            ("app/sim/fleet.py", "5,000-GPU vectorised physics, Slurm scheduler, MIG, XID/ECC health"),
+            ("app/sim/topology.py", f"campus, halls, {T.SU_COUNT} SUs, racks, {T.NODE_COUNT} nodes, power & cooling chains, fabric, storage, K8s"),
+            ("app/sim/fleet.py", f"{T.GPU_COUNT:,}-GPU vectorised physics, Slurm scheduler, MIG, XID/ECC health"),
             ("app/sim/facility.py", "2N power, liquid-first N+1 cooling, PUE/WUE/CUE, gensets, energy"),
             ("app/sim/itinfra.py · cloud.py · cost.py", "Storage Scale, fabrics, K8s · AWS → GCP → NHN · KEPCO TOU, budget"),
             ("app/sim/alerts.py · scenarios.py", "rules, incidents, Slack fan-out; 15 causal scenarios"),

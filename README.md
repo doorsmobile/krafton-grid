@@ -3,8 +3,8 @@
 Release <!-- RELEASE:START --> grid-claude-v2.0 <!-- RELEASE:END --> · Version <!-- VERSION:START --> 2.0 <!-- VERSION:END --> · port **8003**
 
 A digital twin and operations console for the Krafton Grid 100 MW AI data center campus (5 × 20 MW modules, M1 live).
-Facility (2N power, N+1 liquid-first cooling), 5,000 NVIDIA B300 GPUs under Slurm + CubeFlow, IBM Storage Scale 100 PB,
-Arista + Quantum-2 fabrics, Dell Kubernetes, AWS → GCP → NHN cloud, KEPCO TOU cost and FY budget — computed every 2 s
+Facility (2N power, N+1 liquid-first cooling), 6,912 NVIDIA B300 GPUs (12 SU × 72 HGX nodes) under Slurm + CubeFlow,
+IBM Storage Scale 480 PB (per SU 10 PB hot + 30 PB cold), Arista + Quantum-X800 XDR fabrics, Dell Kubernetes, AWS → GCP → NHN cloud, KEPCO TOU cost and FY budget — computed every 2 s
 from physical and operational models, streamed live to every page, and queryable by API, PromQL, LogQL or Claude.
 
 The canonical spec is [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) (also at **Platform → Requirements**).

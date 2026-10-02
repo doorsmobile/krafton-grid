@@ -50,7 +50,7 @@
 
 <div class="panel mt" data-tab-scope>
   <div class="tabs" data-tabs="tab" data-default="heatmap">
-    <button data-tab="heatmap">5,000-GPU heatmap</button><button data-tab="provisioning">Provisioning</button><button data-tab="performance">Performance</button>
+    <button data-tab="heatmap">{{ '{:,}'.format(TOPO.gpus) }}-GPU heatmap</button><button data-tab="provisioning">Provisioning</button><button data-tab="performance">Performance</button>
     <button data-tab="inventory">Inventory · Slurm + CubeFlow<span class="count">{{ s.nodes }}</span></button><button data-tab="connected">Connected entities</button>
   </div>
 
@@ -58,7 +58,7 @@
     <div class="row between wrap mb">
       <div class="seg" id="hm-metric"><button data-m="util" class="on">Utilization</button><button data-m="sm">SM</button><button data-m="temp">Temperature</button><button data-m="power">Power</button><button data-m="mem">HBM</button></div>
       <div class="row"><div class="scale"><span id="hm-lo"></span><span class="ramp" id="hm-ramp"></span><span id="hm-hi"></span></div>
-        <span class="xs muted">rows = racks R01–R40 · 16 nodes × 8 GPUs · amber underline = drain · white box = thermal throttle · red = failed</span></div>
+        <span class="xs muted">rows = racks R01–{{ TOPO.last_rack }} grouped by SU ({{ TOPO.su_racks }} racks) · {{ TOPO.rack_nodes }} nodes × 8 GPUs · amber underline = drain · white box = thermal throttle · red = failed</span></div>
     </div>
     <div class="heat-wrap" id="heat"></div>
   </div>
@@ -173,10 +173,11 @@
       th: K.line("c-thr", [{ name: "throttling", data: th, color: C.amber }, { name: "idle allocated", data: idle, color: C.steel }], { decimals: 0, min: 0 }),
     };
     const fleet = await Grid.getJSON("/api/gpu/fleet");
-    const racks = fleet.racks, rows = ["A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4"];
-    const data = racks.map((r, i) => [i % 5, rows.indexOf(r.row), r.temp_max]);
-    K.heat("c-rackheat", ["pos 1", "pos 2", "pos 3", "pos 4", "pos 5"], rows, data, { min: 40, max: 90, unit: "°C", labels: true,
-      tooltip: function () { const r = racks[rows.indexOf(this.series.yAxis.categories[this.point.y]) * 5 + this.point.x]; return `<b>${r.id}</b> · row ${r.row}<br>max ${F.f1(r.temp_max)} °C · ${F.f1(r.kw)} kW · util ${F.f1(r.util)}%`; } });
+    const racks = fleet.racks, per = {{ TOPO.su_racks }}, rows = [...new Set(racks.map((r) => r.row))];
+    const data = racks.map((r, i) => [i % per, rows.indexOf(r.row), r.temp_max]);
+    const cats = rows.map((row) => `${row} · ${racks.find((r) => r.row === row).su}`);
+    K.heat("c-rackheat", Array.from({ length: per }, (_, i) => "pos " + (i + 1)), cats, data, { min: 40, max: 90, unit: "°C", labels: true,
+      tooltip: function () { const r = racks[this.point.y * per + this.point.x]; return `<b>${r.id}</b> · ${r.su} · row ${r.row}<br>max ${F.f1(r.temp_max)} °C · ${F.f1(r.kw)} kW · util ${F.f1(r.util)}%`; } });
   }
   Grid.onLive((L) => {
     if (!perfCharts) return; const ms = L.ts * 1000;

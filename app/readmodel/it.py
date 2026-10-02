@@ -36,7 +36,7 @@ def gpu_fleet(eng) -> dict:
                                    "Enable 60-min idle culling for its RCS / notebook sessions.", "href": f"/gpu-platform/ops?tab=projects"})
     if s["power_throttle"] > 200:
         recs.append({"kind": "tune", "title": "Pretrain jobs are pinned at the 1,100 W cap",
-                     "detail": f"{s['power_throttle']} GPUs run at TDP. With liquid headroom, a 1,200 W power-profile on train racks R01–R16 buys ~4% throughput.",
+                     "detail": f"{s['power_throttle']} GPUs run at TDP. With liquid headroom, a 1,200 W power-profile on train SUs SU01–SU04 (R01–R16) buys ~4% throughput.",
                      "href": "/gpu-fleet?tab=performance"})
     hot = int(np.argmax(f.temp))
     if f.temp[hot] > 78:
@@ -76,7 +76,7 @@ def rack_matrix(eng) -> list[dict]:
     out = []
     for i, rk in enumerate(T.GPU_RACK_LIST):
         gm = f.gpu_rack == i
-        out.append({"id": rk.id, "row": rk.row, "hall": rk.hall, "partition": T.RACK_PARTITION[rk.id],
+        out.append({"id": rk.id, "row": rk.row, "hall": rk.hall, "su": rk.extra["su"], "partition": T.RACK_PARTITION[rk.id],
                     "kw": round(float(eng.rack_kw_vec[i]), 1), "util": round(float(f.util[gm].mean()), 1),
                     "temp_max": round(float(f.temp[gm].max()), 1), "throttle": int((f.throttle[gm] == 1).sum()),
                     "failed": int((f.health[gm] == 2).sum()), "alloc": int((f.gpu_job[gm] >= 0).sum()), "gpus": int(gm.sum())})
@@ -87,12 +87,13 @@ def heatmap(eng, metric: str) -> dict:
     f = eng.fleet
     key, unit, lo, hi = HEAT_METRICS.get(metric, HEAT_METRICS["util"])
     vec = getattr(f, key)
-    grid = np.full((T.GPU_RACKS, 16 * G), -1.0, np.float32)
+    cols = T.NODES_PER_RACK * G
+    grid = np.full((T.GPU_RACKS, cols), -1.0, np.float32)
     for n in range(N_NODE):
         r = T.NODE_RACK_IDX[n]
         s = T.NODE_SLOT[n] - 1
         grid[r, s * G:(s + 1) * G] = vec[n * G:(n + 1) * G]
-    status = np.zeros((T.GPU_RACKS, 16 * G), np.int8)
+    status = np.zeros((T.GPU_RACKS, cols), np.int8)
     for n in range(N_NODE):
         r, s = T.NODE_RACK_IDX[n], T.NODE_SLOT[n] - 1
         st = f.node_state[n]
@@ -101,7 +102,8 @@ def heatmap(eng, metric: str) -> dict:
             code = np.maximum(code, 4 if st == "down" else 1)
         status[r, s * G:(s + 1) * G] = code
     return {"metric": metric, "unit": unit, "min": lo, "max": hi, "racks": [r.id for r in T.GPU_RACK_LIST],
-            "cols": 16 * G, "values": np.round(grid, 1).ravel().tolist(), "status": status.ravel().tolist(),
+            "sus": [r.extra["su"] for r in T.GPU_RACK_LIST], "group": T.RACKS_PER_SU, "per": G,
+            "cols": cols, "values": np.round(grid, 1).ravel().tolist(), "status": status.ravel().tolist(),
             "legend": {"0": "ok", "1": "drain", "2": "thermal throttle", "3": "failed", "4": "down"}}
 
 
@@ -136,18 +138,29 @@ def gpu_node(eng, node_id: str) -> dict | None:
         neighbors.append({"id": T.NODE_IDS[nn], "slot": T.NODE_SLOT[nn], "state": str(f.node_state[nn]),
                           "util": round(float(f.util[nn * G:(nn + 1) * G].mean()), 1),
                           "temp": round(float(f.temp[nn * G:(nn + 1) * G].max()), 1), "self": nn == n})
-    ib = eng.network.dev[rk.ib_leaf]
     eth = eng.network.dev[rk.eth_leaf]
     m_util = eng.tsdb.metrics["node_gpu_util"]
     return {"node": rec, "gpus": gpus, "neighbors": neighbors,
-            "fabric": {"ib_leaf": {"id": rk.ib_leaf, **{k: ib[k] for k in ("util_pct", "links_down", "status", "errors")}},
+            "fabric": {"ib_leaf": ib_rails(eng, rk), "ib_rails": ib_rails(eng, rk, detail=True),
                        "eth_leaf": {"id": rk.eth_leaf, **{k: eth[k] for k in ("util_pct", "status", "errors", "discards")}}},
             "cooling": {"cdu": rk.cdu, "cdu_status": eng.facility.cdu[rk.cdu]["status"],
                         "supply_c": round(eng.facility.row_supply[rk.row], 1)},
             "power": {"busway_a": f"BW-{rk.row}-A", "busway_b": f"BW-{rk.row}-B", "ups_a": f"UPS-A-{rk.hall}", "ups_b": f"UPS-B-{rk.hall}"},
             "series_col": n, "series_metric": [m.name for m in (m_util,)],
             "slurm": {"partition": rec["partition"], "state": rec["state"], "reason": rec["reason"],
-                      "features": ["b300", "hgx8", "cx8", "liquid", T.RACK_PARTITION[rec["rack"]]], "gres": "gpu:b300:8"}}
+                      "features": ["b300", "hgx8", "cx8", "liquid", rk.extra["su"].lower(), T.RACK_PARTITION[rec["rack"]]],
+                      "gres": "gpu:b300:8"}}
+
+
+def ib_rails(eng, rk, detail: bool = False):
+    """A GPU rack's 8 InfiniBand rails (one Quantum-X800 leaf each). Summary = the worst rail, so a flap on any
+    rail of the SU shows up on every rack and node in it."""
+    rails = [{"id": lid, "rail": i + 1, **{k: eng.network.dev[lid][k] for k in ("util_pct", "links_down", "status", "errors")}}
+             for i, lid in enumerate(rk.extra["ib_leaves"])]
+    if detail:
+        return rails
+    worst = max(rails, key=lambda r: (r["links_down"], r["status"] != "up", r["util_pct"]))
+    return {**worst, "rails": len(rails), "su": rk.extra["su"]}
 
 
 def gpu_device(eng, gid: str) -> dict | None:
@@ -208,7 +221,23 @@ def storage(eng) -> dict:
     return {"summary": {k: s[k] for k in ("used_pb", "total_pb", "used_pct", "read_gbs", "write_gbs", "iops_k", "latency_ms")},
             "clusters": [{"id": c["id"], "product": c["product"], "racks": c["racks"], "peak_read_gbs": c["peak_read_gbs"],
                           "peak_write_gbs": c["peak_write_gbs"], **s["clusters"][c["id"]]} for c in T.STORAGE_CLUSTERS],
-            "toptalkers": vols[:10], "ckpt_jobs": len(eng.fleet.ckpt_jobs)}
+            "toptalkers": vols[:10], "ckpt_jobs": len(eng.fleet.ckpt_jobs), "blocks": storage_blocks(eng, s)}
+
+
+def storage_blocks(eng, s: dict) -> list[dict]:
+    """One hot + one cold IBM building block per SU. NSD pairs go down from the last block (see storage_cluster)."""
+    out = []
+    for u in T.SUS:
+        row = {"su": u["id"], "partition": T.RACK_PARTITION[u["racks"][0]], "gpu_racks": f"{u['racks'][0]}–{u['racks'][-1]}"}
+        for c in T.STORAGE_CLUSTERS:
+            live = s["clusters"][c["id"]]
+            per = live["nsd_total"] // T.SU_COUNT
+            up = (u["index"] + 1) * per <= live["nsd_up"]
+            racks = u[f"{c['tier']}_racks"]
+            row[c["tier"]] = {"racks": racks[0] if len(racks) == 1 else f"{racks[0]}–{racks[-1]}", "pb": c["per_su_pb"],
+                              "status": "up" if up else "down", "read_gbs": round(live["read_gbs"] / T.SU_COUNT, 1)}
+        out.append(row)
+    return out
 
 
 def storage_cluster(eng, cid: str) -> dict | None:
@@ -219,8 +248,10 @@ def storage_cluster(eng, cid: str) -> dict | None:
     vols = sorted((v for v in eng.storage.volumes if v["cluster"] == cid), key=lambda v: -v["iops_k"])
     m = eng.tsdb.metrics["storage_volume_iops_k"]
     cols = [m.column(volume=v["id"]) for v in vols]
+    per_block = s["nsd_total"] // T.SU_COUNT
     nsd = [{"id": f"nsd-{cid.split('-')[1]}-{i + 1:02d}", "status": "up" if i < s["nsd_up"] else "down",
-            "rack": spec["racks"][i % len(spec["racks"])]} for i in range(s["nsd_total"])]
+            "su": T.SUS[i // per_block]["id"], "rack": T.SUS[i // per_block][f"{spec['tier']}_racks"][0]}
+           for i in range(s["nsd_total"])]
     return {"cluster": {**spec, **s}, "volumes": vols, "volume_cols": cols,
             "cluster_col": [c["id"] for c in T.STORAGE_CLUSTERS].index(cid), "nsd": nsd}
 
@@ -242,9 +273,10 @@ def network(eng) -> dict:
     uplinks = []
     for d in T.ETH_LEAVES + T.IB_LEAVES:
         live = eng.network.dev[d["id"]]
-        cap = (8 * (800 if d["fabric"] == "ethernet" else 400))
-        uplinks.append({"device": d["id"], "fabric": d["fabric"], "rack": d.get("rack"),
-                        "uplinks": 8 if d["fabric"] == "ethernet" else 6, "capacity_gbps": cap,
+        n_up = 8 if d["fabric"] == "ethernet" else T.NODES_PER_SU
+        cap = n_up * d["speed_g"]
+        uplinks.append({"device": d["id"], "fabric": d["fabric"], "rack": d.get("su") or d.get("rack"),
+                        "uplinks": n_up, "capacity_gbps": cap,
                         "in_gbps": live["in_gbps"], "out_gbps": live["out_gbps"], "util_pct": live["util_pct"],
                         "status": live["status"], "links_down": live["links_down"]})
     talkers = sorted(devs, key=lambda x: -(x["in_gbps"] + x["out_gbps"]))[:12]
@@ -254,18 +286,24 @@ def network(eng) -> dict:
 
 def topology(eng) -> dict:
     nodes, links = [], []
-    for d in T.NET_DEVICES:
+    # IB leaves are listed by rail plane (all rail-1 leaves of the 12 SUs, then rail 2 …) so each plane's
+    # leaf → spine links stay in their own column block when drawn
+    order = (T.ETH_SPINES + T.ETH_LEAVES + T.IB_SPINES
+             + sorted(T.IB_LEAVES, key=lambda d: (d["plane"], d["su"])))
+    for d in order:
         live = eng.network.dev[d["id"]]
-        nodes.append({"id": d["id"], "fabric": d["fabric"], "tier": d["tier"], "util": live["util_pct"], "status": live["status"]})
+        nodes.append({"id": d["id"], "fabric": d["fabric"], "tier": d["tier"], "util": live["util_pct"], "status": live["status"],
+                      "group": d.get("plane"), "su": d.get("su")})
     for leaf in T.ETH_LEAVES:
         for sp in T.ETH_SPINES:
             links.append({"a": leaf["id"], "b": sp["id"], "fabric": "ethernet",
                           "util": round(eng.network.dev[leaf["id"]]["util_pct"] * 0.9, 1)})
     for leaf in T.IB_LEAVES:
-        for sp in T.IB_SPINES:
-            d = eng.network.dev[leaf["id"]]
-            links.append({"a": leaf["id"], "b": sp["id"], "fabric": "infiniband", "util": d["util_pct"],
-                          "down": d["links_down"] > 0 and sp["id"] in [x["id"] for x in T.IB_SPINES[:d["links_down"]]]})
+        d = eng.network.dev[leaf["id"]]
+        plane = T.IB_PLANE_SPINES[leaf["plane"]]
+        down = {plane[i // T.IB_LINKS_PER_SPINE] for i in range(d["links_down"])}
+        for sp in plane:
+            links.append({"a": leaf["id"], "b": sp, "fabric": "infiniband", "util": d["util_pct"], "down": sp in down})
     return {"nodes": nodes, "links": links}
 
 
@@ -278,7 +316,7 @@ def flows(eng) -> list[dict]:
         out.append({"src": f"{j.name} ({racks[0]}–{racks[-1]})", "dst": "all-reduce · IB fabric", "fabric": "infiniband",
                     "gbps": round(tb * 1000, 0), "job": j.id})
     st = eng.storage.clusters["ss-hot"]
-    out.append({"src": "GPU racks R01–R40", "dst": "ss-hot (read)", "fabric": "ethernet", "gbps": round(st["read_gbs"] * 8, 0)})
+    out.append({"src": f"GPU racks R01–R{T.GPU_RACKS:02d} · {T.SU_COUNT} SU", "dst": "ss-hot (read)", "fabric": "ethernet", "gbps": round(st["read_gbs"] * 8, 0)})
     out.append({"src": "ckpt writers", "dst": "ss-hot (write)", "fabric": "ethernet", "gbps": round(st["write_gbs"] * 8, 0)})
     b = eng.network.border
     out.append({"src": "border leaves", "dst": "AWS Direct Connect", "fabric": "ethernet", "gbps": b["aws_dx_gbps"]})

@@ -27,7 +27,7 @@
     {% set tr = d.transfer %}
     <div class="row between"><span class="mono small"><b>{{ tr.job }}</b></span>{{ pill(tr.status) }}</div>
     <div class="meter mt"><span class="xs">Progress</span><span class="xs mono">{{ (tr.progress * 100)|num(1) }}%</span>{{ bar(tr.progress * 100, size='lg') }}</div>
-    <div class="kv mt"><span>Rate</span><span>{{ tr.rate_gbps }} Gb/s</span><span>Source</span><span class="mono xs">ss-capacity:/ckpt</span><span>Destination</span><span class="mono xs">gs://kg-ckpt-archive</span><span>RPO target</span><span>24 h</span></div>
+    <div class="kv mt"><span>Rate</span><span>{{ tr.rate_gbps }} Gb/s</span><span>Source</span><span class="mono xs">ss-cold:/ckpt</span><span>Destination</span><span class="mono xs">gs://kg-ckpt-archive</span><span>RPO target</span><span>24 h</span></div>
     <div class="section-title">Storage mix</div>
     <div class="chart s" id="c-mix"></div>
   </div>

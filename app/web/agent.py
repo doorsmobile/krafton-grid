@@ -28,9 +28,13 @@ from ..sim.promql import PromQLError, query as promql_query
 MAX_STEPS = 10
 SESSIONS: "OrderedDict[str, dict]" = OrderedDict()
 
-SYSTEM_PROMPT = """You are Mission Control for Krafton Grid, a 100 MW AI data-center campus in Korea.
-Module M1 is live: 5,000 NVIDIA B300 GPUs in 625 HGX nodes across 40 liquid-cooled racks (Halls A/B), \
-IBM Storage Scale 100 PB, Arista Ethernet and NVIDIA Quantum-2 InfiniBand fabrics, a 30-node Dell Kubernetes \
+SYSTEM_PROMPT = f"""You are Mission Control for Krafton Grid, a 100 MW AI data-center campus in Korea.
+Module M1 is live: {T.GPU_COUNT:,} NVIDIA B300 GPUs in {T.SU_COUNT} scalable units (SU01–SU{T.SU_COUNT:02d}) of \
+{T.NODES_PER_SU} HGX nodes ({T.NODE_COUNT} nodes, {T.GPU_RACKS} liquid-cooled racks R01–R{T.GPU_RACKS:02d}, one SU = one row of \
+{T.RACKS_PER_SU} racks; SU01–SU06 in Hall A, SU07–SU12 in Hall B). Partitions: train SU01–SU09, infer SU10, dev SU11, batch SU12. \
+IBM Storage Scale per SU: {T.HOT_PB_PER_SU:.0f} PB hot (NVMe, ss-hot) + {T.COLD_PB_PER_SU:.0f} PB cold (HDD, ss-cold) = \
+{T.STORAGE_TOTAL_PB:,.0f} PB. Fabrics: NVIDIA Quantum-X800 XDR InfiniBand, rail-optimized (8 leaves per SU, \
+ib-leaf-NN = SU·8 + rail, {len(T.IB_SPINES)} spines in 8 planes) and Arista Ethernet; a 30-node Dell Kubernetes \
 cluster, 2N power (KEPCO 154 kV ×2, UPS A/B per hall, 10 gensets) and N+1 liquid-first cooling (CDUs per row \
 with a spare per hall, 5 chillers, free-cooling towers). Cloud overflow runs on AWS (GPUaaS), GCP (storage) and NHN (GPUaaS).
 
@@ -72,7 +76,7 @@ TOOLS: list[dict] = [
          "metric": {"type": "string", "enum": ["temp", "power", "util", "idle"]},
          "level": {"type": "string", "enum": ["rack", "node", "gpu"]},
          "top_k": {"type": "integer"}}, "required": ["metric", "level"], "additionalProperties": False}},
-    {"name": "get_rack", "description": "One GPU rack (R01–R40): power, temperatures, node states, jobs, its CDU and coolant supply, IB/Ethernet leaves.",
+    {"name": "get_rack", "description": f"One GPU rack (R01–R{T.GPU_RACKS:02d}, 4 per SU): power, temperatures, node states, jobs, its CDU and coolant supply, IB/Ethernet leaves.",
      "input_schema": {"type": "object", "properties": {"rack_id": {"type": "string"}}, "required": ["rack_id"], "additionalProperties": False}},
     {"name": "get_node", "description": "One HGX node (e.g. kg-r12-n05): Slurm state, jobs, per-GPU util/temp/power/XID/ECC, recent events.",
      "input_schema": {"type": "object", "properties": {"node_id": {"type": "string"}}, "required": ["node_id"], "additionalProperties": False}},
@@ -233,7 +237,7 @@ class Toolbox:
         rid = rack_id.upper()
         rk = T.RACK_BY_ID.get(rid)
         if not rk or rk.kind != "gpu":
-            raise ValueError(f"{rack_id} is not a GPU rack (R01–R40)")
+            raise ValueError(f"{rack_id} is not a GPU rack (R01–R{T.GPU_RACKS:02d})")
         d = self.rm.entity("rack", rid)
         st, L = d["stats"], self.rm.live()
         states: dict[str, int] = {}

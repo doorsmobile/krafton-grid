@@ -1,4 +1,4 @@
-"""GPU fleet: 5,000 B300 GPUs, 625 HGX nodes, Slurm + CubeFlow scheduling.
+"""GPU fleet: 6,912 B300 GPUs, 864 HGX nodes in 12 SUs, Slurm + CubeFlow scheduling.
 
 Per-GPU physics is vectorised with numpy. Heat flows one way: job profile ->
 utilisation -> power -> (coolant supply + R_th * power) -> temperature ->
@@ -49,7 +49,7 @@ def _partition_of(profile: str, size: int) -> str:
 
 # project -> list of (profile, weight, node sizes or gpu counts)
 PROJECT_MIX = {
-    "llm-pretrain":     [("pretrain", 0.55, [64, 96, 128]), ("finetune", 0.30, [8, 16, 32]), ("eval", 0.15, [8, 16])],
+    "llm-pretrain":     [("pretrain", 0.55, [72, 144]), ("finetune", 0.30, [8, 16, 32]), ("eval", 0.15, [8, 16])],  # pretrain = whole SUs
     "pubg-ally":        [("finetune", 0.40, [8, 16, 24]), ("rlhf", 0.30, [8, 16]), ("eval", 0.20, [8]), ("notebook", 0.10, [1, 2])],
     "inzoi-smartzoi":   [("finetune", 0.40, [8, 16]), ("rlhf", 0.20, [8, 12]), ("eval", 0.20, [8, 16]), ("notebook", 0.20, [1, 2, 4])],
     "speech-voice":     [("finetune", 0.50, [2, 4, 8]), ("eval", 0.25, [4, 8]), ("notebook", 0.25, [1, 2])],
@@ -143,6 +143,7 @@ class Fleet:
         self.rng = rng
         self.gpu_rack = np.repeat(np.array(T.NODE_RACK_IDX), G)
         self.node_rack = np.array(T.NODE_RACK_IDX)
+        self.node_su = np.array([T.SU_BY_ID[s]["index"] for s in T.NODE_SU])
         self.rack_row = [rk.row for rk in T.GPU_RACK_LIST]
         self.node_partition = np.array([T.RACK_PARTITION[r] for r in T.NODE_RACK])
         self.gpu_partition = np.repeat(self.node_partition, G)
@@ -245,7 +246,8 @@ class Fleet:
             self._start(j, now - rng.uniform(86400, 86400 * 5), nodes=mig_nodes[i:i + 5])
 
         seeds = [
-            ("llm-pretrain", "pretrain", 128), ("llm-pretrain", "pretrain", 96), ("llm-pretrain", "finetune", 16),
+            ("llm-pretrain", "pretrain", 144), ("llm-pretrain", "pretrain", 72), ("llm-pretrain", "pretrain", 72),
+            ("llm-pretrain", "finetune", 16),
             ("pubg-ally", "rlhf", 16), ("pubg-ally", "finetune", 16), ("inzoi-smartzoi", "finetune", 16),
             ("inzoi-smartzoi", "rlhf", 8), ("vision-gen", "finetune", 16), ("speech-voice", "finetune", 8),
             ("llm-pretrain", "finetune", 32), ("pubg-ally", "finetune", 24), ("vision-gen", "finetune", 8),
@@ -271,10 +273,10 @@ class Fleet:
             gpus = self._find_gpus(j)
             if gpus is not None:
                 self._start(j, now - rng.uniform(30, 600), gpus=gpus)
-        for proj, prof, size in [("llm-pretrain", "pretrain", 64), ("vision-gen", "finetune", 16), ("pubg-ally", "rlhf", 16)]:
+        for proj, prof, size in [("llm-pretrain", "pretrain", 72), ("vision-gen", "finetune", 16), ("pubg-ally", "rlhf", 16)]:
             self._new_job(proj, prof, size, now - rng.uniform(120, 1800))
         # a couple of pre-existing drained nodes keep the health view honest
-        for n in [int(rng.integers(0, 300)), int(rng.integers(300, 470))]:
+        for n in [int(rng.integers(0, 320)), int(rng.integers(320, 640))]:
             if self.node_state[n] == "idle":
                 self._set_node(n, "drain", "Kill task failed · awaiting reboot", now, now + 600)
 
@@ -286,13 +288,13 @@ class Fleet:
         cand = [n for n in range(N_NODE) if self.node_partition[n] == job.partition and self._node_free(n)]
         if len(cand) < job.size:
             return None
-        # topology-aware: prefer contiguous nodes under the same IB leaves
+        # topology-aware: fewest SUs (each SU is one set of 8 rail leaves) first, then the tightest rack span
         best, best_score = None, None
         for start in range(0, max(1, len(cand) - job.size + 1), max(1, job.size // 4)):
             chunk = cand[start:start + job.size]
             if len(chunk) < job.size:
                 break
-            span = self.node_rack[chunk[-1]] - self.node_rack[chunk[0]]
+            span = (int(self.node_su[chunk[-1]] - self.node_su[chunk[0]]), int(self.node_rack[chunk[-1]] - self.node_rack[chunk[0]]))
             if best_score is None or span < best_score:
                 best, best_score = chunk, span
         return best
@@ -703,7 +705,7 @@ class Fleet:
         gi = slice(n * G, (n + 1) * G)
         jobs = {int(j) for j in self.gpu_job[gi] if j >= 0}
         return {
-            "id": T.NODE_IDS[n], "index": n, "rack": T.NODE_RACK[n], "slot": T.NODE_SLOT[n],
+            "id": T.NODE_IDS[n], "index": n, "rack": T.NODE_RACK[n], "slot": T.NODE_SLOT[n], "su": T.NODE_SU[n],
             "row": self.rack_row[self.node_rack[n]], "hall": T.RACK_BY_ID[T.NODE_RACK[n]].hall,
             "partition": str(self.node_partition[n]), "model": T.NODE_MODEL,
             "state": str(self.node_state[n]), "reason": self.node_reason[n],
@@ -725,7 +727,7 @@ class Fleet:
         }
 
     def node_rows(self, now: float) -> list[dict]:
-        """Compact per-node table for the Slurm + CubeFlow monitor (625 rows)."""
+        """Compact per-node table for the Slurm + CubeFlow monitor (one row per node)."""
         util = self.util.reshape(N_NODE, G).mean(axis=1)
         mem = self.mem.reshape(N_NODE, G).sum(axis=1)
         temp = self.temp.reshape(N_NODE, G).max(axis=1)

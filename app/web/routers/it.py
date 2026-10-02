@@ -18,7 +18,7 @@ def api_fleet():
     return rm.view("gpu_fleet")
 
 
-@router.get("/api/gpu/heatmap", tags=["gpu"], summary="5,000-GPU grid (40 racks × 16 slots × 8 GPUs) for util|temp|power|mem|sm")
+@router.get("/api/gpu/heatmap", tags=["gpu"], summary="6,912-GPU grid (48 racks × 18 nodes × 8 GPUs, grouped by SU) for util|temp|power|mem|sm")
 def api_heatmap(metric: str = "util"):
     return rm.view(f"heatmap:{metric if metric in HEAT else 'util'}")
 

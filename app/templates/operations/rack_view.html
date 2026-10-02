@@ -13,7 +13,7 @@
   <div class="floor">
     {% for row in h.rows %}
     <div class="floor-row">
-      <div class="floor-row-label"><b>{{ row.id }}</b>{% if row.supply_c %}<span class="xs muted">{{ row.supply_c|num(1) }} °C</span>{% endif %}{% if row.cdu_status %}<span class="cdu-chip {{ row.cdu_status }}">CDU {{ row.cdu_status }}</span>{% endif %}</div>
+      <div class="floor-row-label"><b>{{ row.id }}{% if row.su %} <span class="muted">· {{ row.su }}</span>{% endif %}</b>{% if row.supply_c %}<span class="xs muted">{{ row.supply_c|num(1) }} °C</span>{% endif %}{% if row.cdu_status %}<span class="cdu-chip {{ row.cdu_status }}">CDU {{ row.cdu_status }}</span>{% endif %}</div>
       <div class="floor-racks">
         {% for r in row.racks %}
           {% if r.kind == 'gpu' %}

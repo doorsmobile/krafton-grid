@@ -227,3 +227,19 @@ cd /Users/logan/Code/grid-claude-v2.0 && ./run_mac.sh          # Redis 확인 �
 - `REDIS_URL`: Key Value 내부 URL. 무료(25 MB)도 동작하지만, 예전 Cursor 앱의 `dcim:aidc100:cursor:*` 키가 공간을 차지하면 인메모리로 전환됨 — Redis를 계속 쓰려면 그 키를 지우거나 ≥ 64 MB 플랜
 - 무료 인스턴스(CPU 0.1)는 첫 부팅에 수십 초 걸릴 수 있음 — 대기 화면이 3초마다 자동 새로고침
 - 공개 URL이므로 `AUTH_ENABLED=1` + `AUTH_PASSWORD` 유지, `ANTHROPIC_API_KEY`는 필요할 때만
+
+## 10. GPU 6,912장 (12 SU) 확장 후 측정 (2026-10-02)
+
+토폴로지를 B300 5,000장 → **6,912장 (12 SU × 72 nodes × 8)**, 스토리지 100 → 480 PB, IB 스위치 16 → 144대(Quantum-X800 rail-optimized)로 키운 뒤 `GRID_DATA_PROFILE=large` 로컬 측정:
+
+| 항목 | 5,000장 | 6,912장 |
+|------|--------|--------|
+| 엔진 tick | ~10 ms | 9–16 ms |
+| 읽기 모델 빌드 (평상시 tick) | ~30 ms | 34–47 ms |
+| Redis 사용량 | ~120 MB | **~180 MB** (per-GPU 6,912열 링 · 네트워크 장비 210대) |
+| 수집기 RSS | ~440 MB | 320–780 MB (증가 추세 없음) |
+| `/api/series/gpu_temp_c` 1열 | 1.7 ms | 1.7 ms (열 단위 GETRANGE라 열 수와 무관) |
+| `/gpu-platform/ops` (노드 864행) | 8.6 ms | 9.8 ms · 304 KB |
+| `/api/gpu/heatmap` | — | 6.2 ms · 113 KB |
+
+모든 페이지 35 ms 이내. Redis `maxmemory 2gb`(EC2) 대비 여유 충분.

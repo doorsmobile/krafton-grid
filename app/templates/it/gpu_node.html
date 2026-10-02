@@ -40,8 +40,8 @@
   <div class="panel s-8">{{ head('Node telemetry', 'GPU util · power · max temp · 60 min (10 s resolution)') }}<div class="chart l" id="c-node"></div></div>
   <div class="panel s-4">
     {{ head('Placement & dependencies') }}
-    <div class="stat-line"><span>IB leaf</span><span><a class="link mono" href="/network/device/{{ d.fabric.ib_leaf.id }}">{{ d.fabric.ib_leaf.id }}</a> {{ pill(d.fabric.ib_leaf.status) }}</span></div>
-    <div class="stat-line"><span>IB leaf util · links down</span><span>{{ d.fabric.ib_leaf.util_pct }}% · {{ d.fabric.ib_leaf.links_down }}</span></div>
+    <div class="stat-line"><span>IB rails ({{ d.fabric.ib_leaf.su }})</span><span>{% for r in d.fabric.ib_rails %}<a class="link mono {{ 't-crit' if r.links_down else '' }}" href="/network/device/{{ r.id }}" title="rail {{ r.rail }} · {{ r.util_pct }}% · {{ r.status }}">{{ r.id[-2:] }}</a>{{ ' ' if not loop.last }}{% endfor %}</span></div>
+    <div class="stat-line"><span>Worst rail · util · links down</span><span><a class="link mono" href="/network/device/{{ d.fabric.ib_leaf.id }}">{{ d.fabric.ib_leaf.id }}</a> {{ d.fabric.ib_leaf.util_pct }}% · {{ d.fabric.ib_leaf.links_down }} {{ pill(d.fabric.ib_leaf.status) }}</span></div>
     <div class="stat-line"><span>Ethernet ToR</span><span><a class="link mono" href="/network/device/{{ d.fabric.eth_leaf.id }}">{{ d.fabric.eth_leaf.id }}</a></span></div>
     <div class="stat-line"><span>Row CDU</span><span><a class="link mono" href="/facility/cooling/{{ d.cooling.cdu }}">{{ d.cooling.cdu }}</a> {{ pill(d.cooling.cdu_status) }}</span></div>
     <div class="stat-line"><span>Coolant supply</span><span class="{{ 't-warn' if d.cooling.supply_c > 38.5 else '' }}">{{ d.cooling.supply_c }} °C</span></div>
@@ -68,7 +68,7 @@
 
 <div class="panel mt">
   {{ head('Rack ' ~ n.rack ~ ' neighbors', 'same rack · click to jump', '/rack/' ~ n.rack, 'Elevation') }}
-  <div class="floor-racks" style="grid-template-columns:repeat(16,minmax(0,1fr));gap:5px">
+  <div class="floor-racks" style="grid-template-columns:repeat({{ TOPO.rack_nodes }},minmax(0,1fr));gap:5px">
     {% for nb in d.neighbors %}
     <a class="rack-tile {{ 'crit' if nb.state == 'down' else ('warn' if nb.state == 'drain' else '') }}" href="/gpu-fleet/node/{{ nb.id }}" style="min-height:54px;padding:6px;{{ 'border-color:var(--teal)' if nb.self else '' }}">
       <b style="font-size:10.5px">n{{ '%02d'|format(nb.slot) }}</b><span class="rk">{{ nb.util|num(0) }}%</span><span class="rk">{{ nb.temp|num(0) }}°</span></a>

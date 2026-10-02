@@ -72,7 +72,7 @@ class LogStore:
                 self.emit(t, "bms", "info", f"PUE={snap['pue']:.3f} CHWS={snap['cooling']['chw_supply_c']:.1f}C FWS={snap['cooling']['fws_supply_c']:.1f}C OAT={snap['ambient']['dry_c']:.1f}C")
         if rng.random() < 0.1:
             self.emit(t, "vllm", "info", f"Avg prompt throughput: {rng.uniform(8000, 22000):.0f} tokens/s, running: {int(rng.integers(40, 220))} reqs",
-                      host=f"kg-r3{int(rng.integers(1, 6))}-n{int(rng.integers(1, 16)):02d}")
+                      host=f"kg-{rng.choice(T.PARTITION_BY_ID['infer']['racks']).lower()}-n{int(rng.integers(1, T.NODES_PER_RACK + 1)):02d}")
 
     # ------------------------------------------------------------------ query
     def query(self, q: str, now: float, window_s: float = 3600, limit: int = 200) -> dict:

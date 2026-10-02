@@ -8,8 +8,8 @@
 <div class="g g-5">
   <div class="panel tight">{{ kpi('Campus envelope', d.campus_mw|num(0), 'MW', '5 modules × ' ~ (d.module_mw|num(0)) ~ ' MW', size='s') }}</div>
   <div class="panel tight">{{ kpi('M1 critical IT', m1.it_mw|num(2), 'MW', 'of ' ~ (m1.design_mw|num(0)) ~ ' MW · ' ~ m1.util_pct ~ '%', live='site.it_mw', fmt='f2', size='s') }}</div>
-  <div class="panel tight">{{ kpi('Fleet at full TDP', m1.gpu_peak_mw, 'MW', '5,000 × 1.1 kW + node base', size='s') }}</div>
-  <div class="panel tight">{{ kpi('Addable in M1', p.addable_racks, 'racks', '= ' ~ '{:,}'.format(p.addable_gpus) ~ ' B300 · bound by ' ~ p.binding, size='s') }}</div>
+  <div class="panel tight">{{ kpi('Fleet at full TDP', m1.gpu_peak_mw, 'MW', '{:,}'.format(d.fleet.gpus) ~ ' × 1.1 kW + node base', size='s') }}</div>
+  <div class="panel tight">{{ kpi('Addable in M1', p.addable_sus, 'SU', p.addable_racks ~ ' racks = ' ~ '{:,}'.format(p.addable_gpus) ~ ' B300 · bound by ' ~ p.binding, size='s') }}</div>
   <div class="panel tight">{{ kpi('GPU allocation', d.fleet.alloc_pct, '%', 'demand signal for next block', size='s') }}</div>
 </div>
 
@@ -32,9 +32,9 @@
   <div class="panel s-5">
     {{ head('Expansion planner', 'what-if · recomputed in the browser') }}
     <div class="form-grid">
-      <label>Target hall</label><select class="input" id="p-hall"><option value="HD">Hall D (reserved · 20 positions)</option><option value="HA">Hall A (densify)</option><option value="HB">Hall B (densify)</option></select>
-      <label>Racks to add</label><div class="row"><input type="range" id="p-racks" min="0" max="40" value="{{ p.space_limited_racks }}" class="grow"><b class="tnum" id="p-racks-v"></b></div>
-      <label>Nodes per rack</label><div class="row"><input type="range" id="p-nodes" min="4" max="18" value="16" class="grow"><b class="tnum" id="p-nodes-v"></b></div>
+      <label>Target hall</label><select class="input" id="p-hall"><option value="HD">Hall D (reserved · {{ p.space_limited_racks }} positions = {{ (p.space_limited_racks // p.su_racks) }} SU)</option><option value="HA">Hall A (densify)</option><option value="HB">Hall B (densify)</option></select>
+      <label>Racks to add</label><div class="row"><input type="range" id="p-racks" min="0" max="24" step="{{ p.su_racks }}" value="{{ p.space_limited_racks }}" class="grow"><b class="tnum" id="p-racks-v"></b></div>
+      <label>Nodes per rack</label><div class="row"><input type="range" id="p-nodes" min="4" max="18" value="{{ p.rack_nodes }}" class="grow"><b class="tnum" id="p-nodes-v"></b></div>
       <label>GPU power profile</label><div class="row"><input type="range" id="p-tdp" min="1000" max="1400" step="50" value="1100" class="grow"><b class="tnum" id="p-tdp-v"></b></div>
     </div>
     <div class="split mt" id="p-out"></div>
@@ -64,22 +64,22 @@
   const t = (s) => Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, 1);
   K.xrange("c-build", mods, b.map(([m, ph, a, z]) => ({ x: t(a), x2: t(z), y: mods.indexOf(m), phase: ph, color: colors[ph] })));
   const halls = Object.fromEntries({{ d.halls|tojson }}.map((h) => [h.id, h]));
-  const reserved = {{ d.planner.space_limited_racks }};
+  const reserved = {{ d.planner.space_limited_racks }}, suRacks = {{ d.planner.su_racks }};
   const $ = (id) => document.getElementById(id);
   function calc() {
     const hall = $("p-hall").value, racks = +$("p-racks").value, nodes = +$("p-nodes").value, tdp = +$("p-tdp").value;
-    $("p-racks-v").textContent = racks; $("p-nodes-v").textContent = nodes; $("p-tdp-v").textContent = tdp + " W";
-    const nodeKw = (8 * tdp) / 1000 + 2.35 + 0.3, rackKw = nodeKw * nodes + 2.2, addKw = rackKw * racks;
+    $("p-racks-v").textContent = `${racks} (${F.f1(racks / suRacks)} SU)`; $("p-nodes-v").textContent = nodes; $("p-tdp-v").textContent = tdp + " W";
+    const nodeKw = (8 * tdp) / 1000 + 2.35 + 0.3, rackKw = nodeKw * nodes + 6.5, addKw = rackKw * racks;
     const h = halls[hall], after = h.used_kw + addKw, pct = (after / h.design_kw) * 100;
-    const cduOk = rackKw * 5 * 0.88 <= 1350;
+    const cduOk = rackKw * suRacks * 0.88 <= 1350;   // one row = one SU = one CDU
     const spaceOk = hall !== "HD" || racks <= reserved;
     const m1After = {{ d.m1.it_mw }} + addKw / 1000;
     $("p-out").innerHTML = [["Added GPUs", F.int(racks * nodes * 8)], ["Rack peak", F.f1(rackKw) + " kW"], ["Added IT", F.f2(addKw / 1000) + " MW"],
-      [h.name + " after", F.f2(after / 1000) + " / " + F.f1(h.design_kw / 1000) + " MW"], ["M1 after", F.f2(m1After) + " / 20 MW"], ["Row CDU load", F.int(rackKw * 5 * 0.88) + " / 1,350 kW"]]
+      [h.name + " after", F.f2(after / 1000) + " / " + F.f1(h.design_kw / 1000) + " MW"], ["M1 after", F.f2(m1After) + " / 20 MW"], ["Row (SU) CDU load", F.int(rackKw * suRacks * 0.88) + " / 1,350 kW"]]
       .map(([k, v]) => `<div><div class="xs muted">${k}</div><div class="tnum" style="font-weight:650">${v}</div></div>`).join("");
     const issues = [];
     if (pct > 100) issues.push(`${h.name} power budget exceeded (${F.f1(pct)}%)`);
-    if (!cduOk) issues.push("a 5-rack row would exceed one 1.35 MW CDU — needs 2 CDUs per row");
+    if (!cduOk) issues.push(`a ${suRacks}-rack SU row would exceed one 1.35 MW CDU — needs 2 CDUs per row`);
     if (!spaceOk) issues.push(`only ${reserved} positions in Hall D`);
     if (hall !== "HD" && racks > 0) issues.push("densifying A/B needs new row positions — plan a hall re-layout");
     const v = $("p-verdict");

@@ -16,6 +16,6 @@
 <div class="panel mt">
   {{ head('Instance') }}
   <div class="kv"><span>Instance ID</span><span class="mono">{{ n.id }}</span><span>Flavor</span><span class="mono">{{ n.flavor }}</span><span>Availability zone</span><span>{{ n.zone }}</span>
-    <span>Project</span><span>{{ n.project }}</span><span>Image</span><span class="mono">grid/vllm:0.11.2 (NHN mirror)</span><span>Network</span><span>private link → eth-leaf-47/48</span></div>
+    <span>Project</span><span>{{ n.project }}</span><span>Image</span><span class="mono">grid/vllm:0.11.2 (NHN mirror)</span><span>Network</span><span>private link → {{ TOPO.border_leaves }}</span></div>
 </div>
 {% endblock %}

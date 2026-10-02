@@ -29,7 +29,7 @@ from .logs import LogStore
 from .scenarios import ScenarioRunner
 from .tsdb import TIERS, TSDB
 
-RACK_OVERHEAD_KW = 2.2  # ToR + share of IB leaf + mgmt switch + rear-door fans
+RACK_OVERHEAD_KW = 6.5  # ToR + 2 of the SU's 8 Quantum-X800 rail leaves + mgmt switch + rear-door fans
 
 
 class Engine:
@@ -252,7 +252,7 @@ class Engine:
         per = {}
         for c in T.STORAGE_CLUSTERS:
             u = st[c["id"]].get("util_pct", 30.0) / 100
-            base, var = {"ss-hot": (22.0, 11.0), "ss-capacity": (17.5, 6.0), "ss-archive": (8.0, 2.0)}[c["id"]]
+            base, var = {"ss-hot": (19.0, 9.0), "ss-cold": (14.5, 4.0)}[c["id"]]
             for rk in c["racks"]:
                 per[rk] = base + var * u + float(rng.normal(0, 0.2))
         k8s_cpu = self.k8s.summary()["cpu_pct"] / 100 if self.k8s.nodes else 0.3
@@ -260,7 +260,7 @@ class Engine:
             per[rk] = 10 * (1.1 + 0.9 * k8s_cpu)
         ib = self.network.summary()["ib_util_pct"] / 100 if self.network.dev else 0.5
         for i, rk in enumerate(("N01", "N02", "N03", "N04", "N05", "N06")):
-            per[rk] = (11.5 if i < 4 else 5.5) * (0.8 + 0.3 * ib)
+            per[rk] = (34.0 if i < 4 else 5.5) * (0.8 + 0.3 * ib)   # N01–N04: 48 IB + 8 Ethernet spines
         per["MG1"] = 6.2
         self.hallc = per
         return sum(per.values())
@@ -433,7 +433,7 @@ class Engine:
             "network.devices_down": {"entities": dev_down, "summary": f"{', '.join(dev_down)} down", "href": "/network"},
             "storage.latency_ms": {"summary": f"ss-hot latency {st['clusters']['ss-hot']['latency_ms']:.2f} ms · write "
                                    f"{st['clusters']['ss-hot']['write_gbs']:.0f} GB/s", "href": "/storage/cluster/ss-hot"},
-            "storage.used_pct": {"summary": f"{st['used_pct']}% of 100 PB used", "href": "/storage"},
+            "storage.used_pct": {"summary": f"{st['used_pct']}% of {T.STORAGE_TOTAL_PB:,.0f} PB used", "href": "/storage"},
             "storage.nsd_down": {"entities": nsd_down, "summary": f"NSD servers down in {', '.join(nsd_down)}", "href": "/storage"},
             "k8s.not_ready": {"entities": k8s_nr, "summary": f"{', '.join(k8s_nr)} NotReady", "href": f"/kubernetes/node/{k8s_nr[0]}" if k8s_nr else "/kubernetes"},
             "k8s.crashloop": {"summary": "Pods crash-looping", "href": "/kubernetes"},

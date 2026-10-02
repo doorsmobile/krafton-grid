@@ -6,7 +6,7 @@ Tiers trade resolution for retention, the way a real TSDB downsamples:
                                 standard   large (GRID_DATA_PROFILE=large · ~130 MB Redis, ~350 MB collector)
     t1   every tick (2 s)       1 h        3 h     facility / fleet / hall / rack aggregates
     t2   every 5 ticks (10 s)   1 h        12 h    per node, per device, per volume
-    t3   every 15 ticks (30 s)  1 h        12 h    per GPU (5,000 columns)
+    t3   every 15 ticks (30 s)  1 h        12 h    per GPU (6,912 columns)
     t4   every 30 ticks (60 s)  24 h       7 d     site-level trend lines
 """
 from __future__ import annotations

@@ -94,7 +94,12 @@ scripts/        bump_version.py · smoke.py
 tests/          pytest suite (incl. an architecture guard: the web tier must read only the store)
 ```
 
-## Deploying (e.g. Render)
+## Deploying
+
+**EC2 / any Ubuntu host:** `deploy/setup_ec2.sh` installs Redis, the collector and web as systemd services and nginx in front —
+see [deploy/README.md](deploy/README.md). Re-running it deploys the latest `main`.
+
+**Render (PaaS):**
 
 Start command `uvicorn app.main:app --host 0.0.0.0 --port $PORT` (one worker). With `REDIS_URL` set, the web process takes the
 collector lease and publishes into Redis itself (~15 MB of keys, fits a 25 MB plan); if Redis is full it falls back to the

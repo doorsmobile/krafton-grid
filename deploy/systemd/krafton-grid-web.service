@@ -1,0 +1,26 @@
+[Unit]
+Description=Krafton Grid web (grid-claude) — pages, APIs and SSE read from Redis
+After=network-online.target redis-server.service krafton-grid-collector.service
+Wants=network-online.target krafton-grid-collector.service
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=grid
+Group=grid
+WorkingDirectory=/opt/krafton-grid
+EnvironmentFile=/etc/krafton-grid/grid.env
+Environment=PYTHONUNBUFFERED=1
+# systemd restarts the collector itself; the web tier never takes the collector role here
+Environment=GRID_COLLECTOR=external
+ExecStart=/opt/krafton-grid/.venv/bin/python -m uvicorn app.main:app --host ${APP_HOST} --port ${APP_PORT} --no-access-log --proxy-headers --forwarded-allow-ips 127.0.0.1
+Restart=always
+RestartSec=3
+TimeoutStopSec=15
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ReadWritePaths=/var/lib/krafton-grid
+
+[Install]
+WantedBy=multi-user.target

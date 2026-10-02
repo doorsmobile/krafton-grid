@@ -59,7 +59,12 @@ async def _collector_present(store, wait_s: float) -> bool:
 
 
 async def _watchdog() -> None:
-    """auto mode: whenever no collector holds the lease (rolling deploy, crashed collector) start one here."""
+    """auto mode: when no collector has held the lease for 15 s (rolling deploy, crashed collector) start one here.
+
+    Requiring three consecutive free observations avoids stealing the role from a healthy collector whose
+    lease merely expired while the machine was asleep — it renews within 2 s of waking.
+    """
+    free = 0
     while True:
         await asyncio.sleep(5)
         try:
@@ -71,9 +76,12 @@ async def _watchdog() -> None:
                 await asyncio.sleep(10)
             elif c is not None and c.status == "stopped":      # lost the lease to another collector
                 state["collector"] = None
-            if state["collector"] is None and not await asyncio.to_thread(rm.store.lease_holder):
-                log.warning("collector lease is free — starting a collector in this process")
-                _start_embedded(rm.store)
+            if state["collector"] is None:
+                free = 0 if await asyncio.to_thread(rm.store.lease_holder) else free + 1
+                if free >= 3:
+                    log.warning("collector lease free for 15 s — starting a collector in this process")
+                    free = 0
+                    _start_embedded(rm.store)
         except Exception as e:  # noqa: BLE001
             log.warning("watchdog: %s", e)
 

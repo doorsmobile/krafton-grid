@@ -4,7 +4,9 @@ Today its source is the physics simulator (demo data). A real deployment swaps t
 adapters (DCGM / Redfish / SNMP / Modbus / cloud APIs) that fill the same state — the publisher,
 the Redis key layout and the whole web tier stay unchanged.
 
-Exactly one collector writes at a time: it holds ``lease:collector`` and renews it every tick.
+Exactly one collector writes at a time: it holds ``lease:collector``. The lease is taken only once the
+engine has booted, and a heartbeat thread renews it every 2 s independently of tick or publish
+duration — so a slow boot, a long publish or a laptop waking from sleep never lets it lapse by accident.
 A second collector (or a web process in ``GRID_COLLECTOR=auto`` mode) waits as a standby.
 
 Failures never kill it silently: the last error and a status are kept for /healthz, publishing is
@@ -67,13 +69,16 @@ class Collector:
 
     def _run(self) -> None:
         try:
-            if not self._wait_for_lease():
-                return
             self.status = "booting engine"
             from ..sim.engine import Engine     # heavy import + warm-up/backfill (seconds; longer on small CPUs)
             self.eng = Engine()
             self.pub = Publisher(self.eng, self.store, self.owner)
             self.handlers = C.build(self.eng)
+            if not self._wait_for_lease():       # only now — a booting collector must not sit on the lease
+                return
+            hb = threading.Thread(target=self._heartbeat, name="grid-collector-lease", daemon=True)
+            hb.start()
+            self.threads.append(hb)
             self._first_publish()
             if self.stop_evt.is_set():
                 return
@@ -110,6 +115,24 @@ class Collector:
                     self.store.acquire_lease(self.owner, config.COLLECTOR_LEASE_S)
                 except Exception:  # noqa: BLE001
                     pass
+
+    def _heartbeat(self) -> None:
+        """Renew the lease every 2 s no matter how long a tick or publish takes."""
+        misses = 0
+        while not self.stop_evt.wait(2.0):
+            try:
+                with self._lock:
+                    held = self.store.acquire_lease(self.owner, config.COLLECTOR_LEASE_S)
+                if not held:
+                    log.warning("lost collector lease to %s — stopping", self.store.lease_holder())
+                    self.stop()
+                    return
+                misses = 0
+            except Exception as e:  # noqa: BLE001 — store hiccup: keep trying until the lease would lapse
+                misses += 1
+                self._fail(e)
+                if misses * 2 >= config.COLLECTOR_LEASE_S:
+                    self.status = "store unreachable"
 
     def _fail(self, e: BaseException) -> None:
         self.errors += 1
@@ -160,12 +183,10 @@ class Collector:
 
     # ---------------------------------------------------------------- tick → publish
     def _on_tick(self, eng) -> None:
+        if self.stop_evt.is_set():
+            return
         try:
             with self._lock:
-                if not self.store.acquire_lease(self.owner, config.COLLECTOR_LEASE_S):
-                    log.warning("lost collector lease — another collector is writing; stopping")
-                    self.stop()
-                    return
                 self.pub.publish()
             if self.status != "publishing":
                 self.status, self.last_error = "publishing", None

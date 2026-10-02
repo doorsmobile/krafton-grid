@@ -26,6 +26,7 @@ AGENT_NAME = "Claude"
 # Local per-agent port convention: ChatGPT 8001 · Cursor 8002 · Claude 8003
 APP_HOST = os.getenv("APP_HOST", "127.0.0.1")
 APP_PORT = int(os.getenv("APP_PORT", "8003"))
+PUBLIC_URL = os.getenv("PUBLIC_URL", f"http://127.0.0.1:{APP_PORT}").rstrip("/")   # links in Slack / webhook payloads
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 REDIS_PREFIX = os.getenv("REDIS_PREFIX", "dcim:aidc100:claude")

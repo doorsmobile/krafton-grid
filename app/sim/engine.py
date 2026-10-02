@@ -54,7 +54,7 @@ class Engine:
         self.cloud = Cloud(self.rng, now)
         self.cost = Cost(now)
         self.alerts = AlertManager()
-        self.alerts.base_url = f"http://127.0.0.1:{config.APP_PORT}"
+        self.alerts.base_url = config.PUBLIC_URL
         self.logs = LogStore(self.rng)
         self.scen = ScenarioRunner()
         self.tsdb = TSDB()
